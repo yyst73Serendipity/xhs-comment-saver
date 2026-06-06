@@ -15,7 +15,6 @@ const commentList = document.getElementById('comment-list');
 const emptyState = document.getElementById('empty-state');
 const totalCount = document.getElementById('total-count');
 const searchInput = document.getElementById('search-input');
-const currentCategoryLabel = document.getElementById('current-category-label');
 const newCatInput = document.getElementById('new-cat-input');
 const inputCatName = document.getElementById('input-cat-name');
 const btnAddCat = document.getElementById('btn-add-cat');
@@ -44,7 +43,7 @@ async function init() {
   } catch (err) {
     // 直接读取 storage（background 可能未响应）
     const result = await chrome.storage.local.get(['xhs_categories', 'xhs_comments']);
-    categories = result.xhs_categories || ['好物', '避雷', 'ai学习'];
+    categories = result.xhs_categories || ['好物', '避雷'];
     comments = result.xhs_comments || [];
   }
 
@@ -147,7 +146,6 @@ function createCategoryItem(name, count, showActions) {
  */
 function selectCategory(name) {
   currentCategory = name;
-  currentCategoryLabel.textContent = name;
   searchInput.value = '';
   searchKeyword = '';
   renderAll();
@@ -276,7 +274,7 @@ function createCommentCard(comment) {
   // 作者
   const author = document.createElement('span');
   author.className = 'comment-card-author';
-  author.textContent = comment.author || '未知用户';
+  author.textContent = comment.author || '';
   meta.appendChild(author);
 
   // 分类切换下拉框
@@ -347,7 +345,7 @@ function createCommentGroupCard(group) {
 
       const ctxAuthor = document.createElement('span');
       ctxAuthor.className = 'comment-context-author';
-      ctxAuthor.textContent = '— ' + (comment.author || '未知用户');
+      ctxAuthor.textContent = comment.author ? '— ' + comment.author : '';
 
       ctxCard.appendChild(ctxLabel);
       ctxCard.appendChild(ctxText);
@@ -463,7 +461,6 @@ async function deleteCategoryHandler(name) {
       }
       if (currentCategory === name) {
         currentCategory = '全部';
-        currentCategoryLabel.textContent = '全部';
       }
       renderAll();
     }
@@ -477,7 +474,6 @@ async function deleteCategoryHandler(name) {
     });
     if (currentCategory === name) {
       currentCategory = '全部';
-      currentCategoryLabel.textContent = '全部';
     }
     renderAll();
   }
@@ -515,7 +511,6 @@ async function renameCategoryHandler(oldName, newName) {
       }
       if (currentCategory === oldName) {
         currentCategory = newName;
-        currentCategoryLabel.textContent = newName;
       }
       renderAll();
     } else {
@@ -537,7 +532,6 @@ async function renameCategoryHandler(oldName, newName) {
       });
       if (currentCategory === oldName) {
         currentCategory = newName;
-        currentCategoryLabel.textContent = newName;
       }
       renderAll();
     }

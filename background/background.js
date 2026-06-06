@@ -4,7 +4,7 @@
  */
 
 /* 默认分类列表 */
-const DEFAULT_CATEGORIES = ['好物', '避雷', 'ai学习'];
+const DEFAULT_CATEGORIES = ['好物', '避雷'];
 
 /* 存储键名 */
 const STORAGE_KEY_COMMENTS = 'xhs_comments';

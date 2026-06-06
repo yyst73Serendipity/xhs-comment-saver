@@ -124,7 +124,7 @@ function extractAuthor(commentEl) {
   if (authorEl) return authorEl.textContent.trim();
   const firstLink = commentEl.querySelector('a');
   if (firstLink) return firstLink.textContent.trim();
-  return '未知用户';
+  return '';
 }
 
 /**
@@ -573,7 +573,7 @@ async function init() {
       });
     }
   } catch (err) {
-    categories = ['好物', '避雷', 'ai学习'];
+    categories = ['好物', '避雷'];
   }
 
   scanAndInject();
