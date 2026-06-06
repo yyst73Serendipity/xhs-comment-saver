@@ -21,6 +21,9 @@ const inputCatName = document.getElementById('input-cat-name');
 const btnAddCat = document.getElementById('btn-add-cat');
 const btnConfirmCat = document.getElementById('btn-confirm-cat');
 const btnCancelCat = document.getElementById('btn-cancel-cat');
+const btnExport = document.getElementById('btn-export');
+const btnImport = document.getElementById('btn-import');
+const importFile = document.getElementById('import-file');
 
 /**
  * 初始化：从 storage 加载数据
@@ -611,6 +614,72 @@ function getFilteredCount() {
   return filtered.length;
 }
 
+/**
+ * 导出数据为 JSON 文件并触发下载
+ */
+async function exportData() {
+  const result = await chrome.storage.local.get(['xhs_categories', 'xhs_comments']);
+  const data = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    categories: result.xhs_categories || [],
+    comments: result.xhs_comments || []
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `xhs-comments-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * 导入 JSON 文件，合并到当前存储中
+ */
+async function importData(file) {
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+
+    // 校验数据结构
+    if (!data.comments || !Array.isArray(data.comments)) {
+      alert('文件格式无效：缺少评论数据');
+      return;
+    }
+    if (!data.categories || !Array.isArray(data.categories)) {
+      alert('文件格式无效：缺少分类数据');
+      return;
+    }
+
+    // 读取当前数据
+    const current = await chrome.storage.local.get(['xhs_categories', 'xhs_comments']);
+    const currentCategories = current.xhs_categories || [];
+    const currentComments = current.xhs_comments || [];
+
+    // 合并分类（去重）
+    const mergedCategories = [...currentCategories];
+    data.categories.forEach(cat => {
+      if (!mergedCategories.includes(cat)) mergedCategories.push(cat);
+    });
+
+    // 合并评论（按 id 去重）
+    const existingIds = new Set(currentComments.map(c => c.id));
+    const newComments = data.comments.filter(c => !existingIds.has(c.id));
+    const mergedComments = [...newComments, ...currentComments];
+
+    await chrome.storage.local.set({
+      xhs_categories: mergedCategories,
+      xhs_comments: mergedComments
+    });
+
+    alert(`导入完成！新增 ${data.categories.length - currentCategories.filter(c => data.categories.includes(c)).length} 个分类、${newComments.length} 条评论`);
+    location.reload();
+  } catch (err) {
+    alert('导入失败：' + err.message);
+  }
+}
+
 /* 事件绑定 */
 
 // 新建分类按钮
@@ -638,6 +707,16 @@ searchInput.addEventListener('input', () => {
   searchKeyword = searchInput.value.trim();
   renderComments();
   updateEmptyState();
+});
+
+// 导出按钮
+btnExport.addEventListener('click', exportData);
+
+// 导入按钮 → 触发文件选择
+btnImport.addEventListener('click', () => importFile.click());
+importFile.addEventListener('change', () => {
+  if (importFile.files[0]) importData(importFile.files[0]);
+  importFile.value = '';
 });
 
 /* 页面加载 */

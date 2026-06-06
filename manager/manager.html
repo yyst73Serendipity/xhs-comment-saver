@@ -41,6 +41,9 @@
         <!-- 搜索和操作栏 -->
         <div class="toolbar">
           <input type="text" class="search-input" id="search-input" placeholder="搜索收藏的评论...">
+          <button class="btn-export" id="btn-export" title="导出为 JSON 文件">导出</button>
+          <button class="btn-import" id="btn-import" title="从 JSON 文件导入">导入</button>
+          <input type="file" class="import-file" id="import-file" accept=".json" hidden>
           <span class="category-badge" id="current-category-label">全部</span>
         </div>
 

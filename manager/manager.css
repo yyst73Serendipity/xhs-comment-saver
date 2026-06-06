@@ -227,6 +227,27 @@ body {
   box-shadow: 0 0 0 2px rgba(255, 36, 66, 0.2);
 }
 
+/* 导出/导入按钮 */
+.btn-export,
+.btn-import {
+  padding: 7px 14px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: #fff;
+  color: #666;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.btn-export:hover,
+.btn-import:hover {
+  border-color: #ff2442;
+  color: #ff2442;
+  background: rgba(255, 36, 66, 0.04);
+}
+
 .category-badge {
   padding: 6px 14px;
   border-radius: 20px;
