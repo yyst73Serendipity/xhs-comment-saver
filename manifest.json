@@ -1,0 +1,53 @@
+/**
+ * manifest.json - Chrome 扩展配置文件
+ * 配置扩展的基本信息、权限、内容脚本和服务工作线程
+ */
+{
+  "manifest_version": 3,
+  "name": "小红书评论收藏",
+  "version": "1.0.0",
+  "description": "浏览小红书时收藏和分类用户评论",
+
+  "icons": {
+    "16": "assets/icon-16.png",
+    "48": "assets/icon-48.png",
+    "128": "assets/icon-128.png"
+  },
+
+  "permissions": [
+    "storage"
+  ],
+
+  "host_permissions": [
+    "*://*.xiaohongshu.com/*"
+  ],
+
+  "background": {
+    "service_worker": "background/background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["*://*.xiaohongshu.com/*"],
+      "js": ["content/content.js"],
+      "css": ["content/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "action": {
+    "default_title": "小红书评论收藏",
+    "default_icon": {
+      "16": "assets/icon-16.png",
+      "48": "assets/icon-48.png",
+      "128": "assets/icon-128.png"
+    }
+  },
+
+  "web_accessible_resources": [
+    {
+      "resources": ["tests/*"],
+      "matches": ["*://*.xiaohongshu.com/*"]
+    }
+  ]
+}

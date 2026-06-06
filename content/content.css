@@ -1,0 +1,231 @@
+/**
+ * content.css - 内容脚本样式
+ * 定义收藏按钮、分类选择浮窗、Toast 提示的外观
+ */
+
+/* 收藏按钮 — 模仿小红书原生操作栏按钮风格 */
+.xhs-cs-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #999;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 6px;
+  margin: 0;
+  vertical-align: middle;
+  flex-shrink: 0;
+  line-height: 1;
+  align-self: center;
+}
+
+.xhs-cs-btn:hover {
+  color: #ff2442;
+  background: transparent;
+}
+
+.xhs-cs-btn.xhs-cs-saved {
+  color: #ff2442;
+}
+
+/* 有选中项时收藏按钮变红，提示批量操作 */
+.xhs-cs-btn.xhs-cs-has-selection {
+  color: #ff2442;
+}
+
+/* 按钮内的图标大小 */
+.xhs-cs-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+/* 按钮文字标签 */
+.xhs-cs-btn::after {
+  content: '收藏';
+}
+
+.xhs-cs-btn.xhs-cs-saved::after {
+  content: '已收藏';
+}
+
+.xhs-cs-btn.xhs-cs-has-selection::after {
+  content: '收藏(' attr(data-count) '条)';
+}
+
+/* 分类选择器浮窗 */
+.xhs-cs-picker {
+  position: absolute;
+  z-index: 99999;
+  width: 200px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  padding: 4px 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  animation: xhs-cs-fadeIn 0.15s ease;
+}
+
+@keyframes xhs-cs-fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 选择器头部 */
+.xhs-cs-picker-header {
+  padding: 10px 14px 6px;
+  font-size: 12px;
+  color: #999;
+  font-weight: 500;
+}
+
+/* 分类列表 */
+.xhs-cs-picker-list {
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.xhs-cs-picker-item {
+  padding: 9px 14px;
+  font-size: 14px;
+  color: #333;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.xhs-cs-picker-item:hover {
+  background: #f5f5f5;
+  color: #ff2442;
+}
+
+/* 新建分类区域 */
+.xhs-cs-picker-footer {
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-top: 1px solid #f0f0f0;
+  gap: 6px;
+}
+
+.xhs-cs-picker-input {
+  flex: 1;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 13px;
+  outline: none;
+  min-width: 0;
+}
+
+.xhs-cs-picker-input:focus {
+  border-color: #ff2442;
+}
+
+.xhs-cs-picker-add {
+  padding: 5px 10px;
+  border: none;
+  border-radius: 6px;
+  background: #ff2442;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.xhs-cs-picker-add:hover {
+  background: #e81e3a;
+}
+
+/* Toast 提示 */
+.xhs-cs-toast {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999999;
+  padding: 10px 24px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  font-size: 14px;
+  border-radius: 8px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.xhs-cs-toast-show {
+  opacity: 1;
+}
+
+/* 多选选择框 — 圆角小方框，默认隐藏，hover 浮现 */
+.xhs-cs-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid #ccc;
+  border-radius: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+  color: transparent;
+  opacity: 0;
+  margin: 0 8px;
+  transition: opacity 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  vertical-align: middle;
+  align-self: center;
+}
+
+/* 鼠标悬停在评论上时，方框浮现 */
+[data-xhs-cs-processed]:hover .xhs-cs-check {
+  opacity: 1;
+}
+
+/* 方框自身 hover */
+.xhs-cs-check:hover {
+  border-color: #ff2442;
+}
+
+/* 选中后方框始终可见，红底白勾 */
+.xhs-cs-check.xhs-cs-checked {
+  opacity: 1;
+  border-color: #ff2442;
+  background: #ff2442;
+  color: #fff;
+}
+
+.xhs-cs-check svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* 评论被选中时的背景高亮 */
+.xhs-cs-selected {
+  background: rgba(255, 36, 66, 0.04);
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+/* 页面底部浮动选中计数 */
+.xhs-cs-selection-badge {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 99999;
+  padding: 8px 20px;
+  background: #ff2442;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 20px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(255, 36, 66, 0.35);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  animation: xhs-cs-fadeIn 0.2s ease;
+}

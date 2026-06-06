@@ -1,0 +1,351 @@
+<!--
+  storage.test.html - 存储操作单元测试页面
+  测试评论和分类的增删查改功能，直接在扩展上下文中运行，使用真实的 chrome.storage.local
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>存储操作测试</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      max-width: 700px;
+      margin: 40px auto;
+      padding: 0 20px;
+      background: #f5f5f5;
+      color: #333;
+    }
+    h1 { color: #ff2442; font-size: 22px; }
+    .summary { margin: 16px 0; font-size: 14px; }
+    .summary .pass { color: #22c55e; font-weight: 600; }
+    .summary .fail { color: #ef4444; font-weight: 600; }
+    .test-case {
+      background: #fff;
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin-bottom: 10px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      border-left: 4px solid #e5e5e5;
+    }
+    .test-case.pass { border-left-color: #22c55e; }
+    .test-case.fail { border-left-color: #ef4444; }
+    .test-case.running { border-left-color: #f59e0b; }
+    .test-name { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+    .test-result { font-size: 13px; }
+    .test-result.pass { color: #22c55e; }
+    .test-result.fail { color: #ef4444; }
+    button {
+      padding: 10px 24px;
+      background: #ff2442;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      cursor: pointer;
+    }
+    button:hover { background: #e81e3a; }
+  </style>
+</head>
+<body>
+  <h1>存储操作测试</h1>
+  <div class="summary" id="summary"></div>
+  <div id="test-results"></div>
+  <button onclick="runAllTests()">运行全部测试</button>
+
+  <script>
+    const STORAGE_KEY_COMMENTS = 'xhs_comments';
+    const STORAGE_KEY_CATEGORIES = 'xhs_categories';
+    let testResults = [];
+    let passCount = 0;
+    let failCount = 0;
+
+    /**
+     * 断言：值相等
+     * @param {*} actual - 实际值
+     * @param {*} expected - 期望值
+     * @param {string} message - 断言描述
+     */
+    function assertEqual(actual, expected, message) {
+      const pass = actual === expected;
+      if (pass) {
+        passCount++;
+      } else {
+        failCount++;
+        console.error(`FAIL: ${message} (期望: ${expected}, 实际: ${actual})`);
+      }
+      return pass;
+    }
+
+    /**
+     * 记录测试结果
+     * @param {string} name - 测试名称
+     * @param {boolean} pass - 是否通过
+     * @param {string} detail - 详细信息
+     */
+    function recordResult(name, pass, detail) {
+      testResults.push({ name, pass, detail });
+    }
+
+    /**
+     * 渲染测试结果到页面
+     */
+    function renderResults() {
+      const container = document.getElementById('test-results');
+      container.innerHTML = testResults.map(r => {
+        const cls = r.pass ? 'pass' : 'fail';
+        const icon = r.pass ? '✓' : '✗';
+        return `<div class="test-case ${cls}">
+          <div class="test-name">${icon} ${r.name}</div>
+          <div class="test-result ${cls}">${r.detail}</div>
+        </div>`;
+      }).join('');
+
+      document.getElementById('summary').innerHTML = `
+        共 ${testResults.length} 项测试：
+        <span class="pass">${passCount} 通过</span>，
+        <span class="fail">${failCount} 失败</span>
+      `;
+    }
+
+    /**
+     * 清理测试数据
+     */
+    async function cleanTestData() {
+      await chrome.storage.local.remove([STORAGE_KEY_COMMENTS, STORAGE_KEY_CATEGORIES]);
+    }
+
+    /**
+     * 测试：初始化默认分类列表
+     */
+    async function testInitDefaultCategories() {
+      await cleanTestData();
+
+      // 模拟 background 的初始化逻辑
+      const DEFAULT_CATEGORIES = ['干货', '好物', '攻略', '避雷', '其他'];
+      await chrome.storage.local.set({ [STORAGE_KEY_CATEGORIES]: DEFAULT_CATEGORIES });
+      await chrome.storage.local.set({ [STORAGE_KEY_COMMENTS]: [] });
+
+      const result = await chrome.storage.local.get(STORAGE_KEY_CATEGORIES);
+      const categories = result[STORAGE_KEY_CATEGORIES];
+
+      const pass = assertEqual(categories.length, 5, '默认分类数量为 5')
+        && assertEqual(categories[0], '干货', '第一个分类是「干货」')
+        && assertEqual(categories[4], '其他', '最后一个分类是「其他」');
+
+      recordResult('初始化默认分类', pass, `分类列表: ${categories.join(', ')}`);
+    }
+
+    /**
+     * 测试：保存评论
+     */
+    async function testSaveComment() {
+      await cleanTestData();
+      await chrome.storage.local.set({ [STORAGE_KEY_COMMENTS]: [] });
+
+      // 保存一条评论
+      const comment = {
+        text: '这篇文章写得真好，学到了很多！',
+        author: '测试用户A',
+        postUrl: 'https://www.xiaohongshu.com/explore/test123',
+        postTitle: '测试帖子标题',
+        category: '干货'
+      };
+
+      const newComment = {
+        ...comment,
+        id: Date.now().toString(36) + Math.random().toString(36).substring(2, 8),
+        savedAt: Date.now()
+      };
+
+      let comments = await chrome.storage.local.get(STORAGE_KEY_COMMENTS);
+      comments = comments[STORAGE_KEY_COMMENTS] || [];
+      comments.unshift(newComment);
+      await chrome.storage.local.set({ [STORAGE_KEY_COMMENTS]: comments });
+
+      // 验证保存结果
+      const result = await chrome.storage.local.get(STORAGE_KEY_COMMENTS);
+      const savedList = result[STORAGE_KEY_COMMENTS];
+
+      const pass = assertEqual(savedList.length, 1, '保存后评论列表长度为 1')
+        && assertEqual(savedList[0].text, comment.text, '评论文本正确保存')
+        && assertEqual(savedList[0].author, comment.author, '评论作者正确保存')
+        && assertEqual(savedList[0].category, comment.category, '评论分类正确保存')
+        && assertEqual(typeof savedList[0].id, 'string', '评论 ID 为字符串')
+        && assertEqual(typeof savedList[0].savedAt, 'number', '保存时间为数字');
+
+      recordResult('保存评论', pass, `保存了 1 条评论到「干货」分类`);
+    }
+
+    /**
+     * 测试：删除评论
+     */
+    async function testDeleteComment() {
+      await cleanTestData();
+
+      // 先保存两条评论
+      const comment1 = {
+        id: 'test-id-001',
+        text: '评论一',
+        author: '用户A',
+        postUrl: 'https://example.com/1',
+        postTitle: '帖子1',
+        category: '好物',
+        savedAt: Date.now()
+      };
+      const comment2 = {
+        id: 'test-id-002',
+        text: '评论二',
+        author: '用户B',
+        postUrl: 'https://example.com/2',
+        postTitle: '帖子2',
+        category: '攻略',
+        savedAt: Date.now()
+      };
+
+      await chrome.storage.local.set({ [STORAGE_KEY_COMMENTS]: [comment1, comment2] });
+
+      // 删除 comment1
+      let result = await chrome.storage.local.get(STORAGE_KEY_COMMENTS);
+      let list = result[STORAGE_KEY_COMMENTS];
+      const filtered = list.filter(c => c.id !== 'test-id-001');
+      await chrome.storage.local.set({ [STORAGE_KEY_COMMENTS]: filtered });
+
+      // 验证
+      result = await chrome.storage.local.get(STORAGE_KEY_COMMENTS);
+      list = result[STORAGE_KEY_COMMENTS];
+
+      const pass = assertEqual(list.length, 1, '删除后剩余 1 条')
+        && assertEqual(list[0].id, 'test-id-002', '剩下的评论是 comment2');
+
+      recordResult('删除评论', pass, '成功删除指定评论，剩余 1 条');
+    }
+
+    /**
+     * 测试：按分类筛选评论
+     */
+    async function testFilterByCategory() {
+      await cleanTestData();
+
+      const comments = [
+        { id: 'a', text: '干货评论', author: 'A', postUrl: '', postTitle: '', category: '干货', savedAt: 1 },
+        { id: 'b', text: '攻略评论', author: 'B', postUrl: '', postTitle: '', category: '攻略', savedAt: 2 },
+        { id: 'c', text: '好物评论', author: 'C', postUrl: '', postTitle: '', category: '好物', savedAt: 3 },
+      ];
+      await chrome.storage.local.set({ [STORAGE_KEY_COMMENTS]: comments });
+
+      const result = await chrome.storage.local.get(STORAGE_KEY_COMMENTS);
+      const all = result[STORAGE_KEY_COMMENTS];
+      const ganhuoComments = all.filter(c => c.category === '干货');
+
+      const pass = assertEqual(all.length, 3, '总共 3 条评论')
+        && assertEqual(ganhuoComments.length, 1, '干货分类下有 1 条')
+        && assertEqual(ganhuoComments[0].text, '干货评论', '筛选结果正确');
+
+      recordResult('按分类筛选评论', pass, `共 3 条评论，干货分类 1 条`);
+    }
+
+    /**
+     * 测试：新增分类
+     */
+    async function testAddCategory() {
+      await cleanTestData();
+
+      const categories = ['干货', '好物', '攻略'];
+      await chrome.storage.local.set({ [STORAGE_KEY_CATEGORIES]: categories });
+
+      // 新增分类
+      const newCat = '工具推荐';
+      let result = await chrome.storage.local.get(STORAGE_KEY_CATEGORIES);
+      let list = result[STORAGE_KEY_CATEGORIES];
+      if (!list.includes(newCat)) {
+        list.push(newCat);
+        await chrome.storage.local.set({ [STORAGE_KEY_CATEGORIES]: list });
+      }
+
+      result = await chrome.storage.local.get(STORAGE_KEY_CATEGORIES);
+      list = result[STORAGE_KEY_CATEGORIES];
+
+      const pass = assertEqual(list.length, 4, '新增后分类数量为 4')
+        && assertEqual(list.includes(newCat), true, '新分类「工具推荐」已添加');
+
+      recordResult('新增分类', pass, `分类列表: ${list.join(', ')}`);
+    }
+
+    /**
+     * 测试：删除分类
+     */
+    async function testDeleteCategory() {
+      await cleanTestData();
+
+      const categories = ['干货', '好物', '攻略'];
+      const comments = [
+        { id: '1', text: '待移动评论', author: 'A', postUrl: '', postTitle: '', category: '好物', savedAt: 1 },
+      ];
+
+      await chrome.storage.local.set({
+        [STORAGE_KEY_CATEGORIES]: categories,
+        [STORAGE_KEY_COMMENTS]: comments
+      });
+
+      // 删除「好物」分类
+      const removed = '好物';
+      let result = await chrome.storage.local.get(STORAGE_KEY_CATEGORIES);
+      let catList = result[STORAGE_KEY_CATEGORIES];
+      catList = catList.filter(c => c !== removed);
+      await chrome.storage.local.set({ [STORAGE_KEY_CATEGORIES]: catList });
+
+      // 将该分类下的评论移到「其他」
+      result = await chrome.storage.local.get(STORAGE_KEY_COMMENTS);
+      let commentList = result[STORAGE_KEY_COMMENTS];
+      commentList = commentList.map(c => c.category === removed ? { ...c, category: '其他' } : c);
+      await chrome.storage.local.set({ [STORAGE_KEY_COMMENTS]: commentList });
+
+      // 验证
+      result = await chrome.storage.local.get([STORAGE_KEY_CATEGORIES, STORAGE_KEY_COMMENTS]);
+      catList = result[STORAGE_KEY_CATEGORIES];
+      commentList = result[STORAGE_KEY_COMMENTS];
+
+      const pass = assertEqual(catList.length, 2, '删除后分类数量为 2')
+        && assertEqual(catList.includes('好物'), false, '「好物」分类已删除')
+        && assertEqual(commentList[0].category, '其他', '原评论已移至「其他」');
+
+      recordResult('删除分类', pass, '分类已删除，评论已移至其他');
+    }
+
+    /**
+     * 运行全部测试
+     */
+    async function runAllTests() {
+      testResults = [];
+      passCount = 0;
+      failCount = 0;
+
+      renderResults();
+      document.getElementById('summary').textContent = '测试运行中...';
+
+      try {
+        await testInitDefaultCategories();
+        await testSaveComment();
+        await testDeleteComment();
+        await testFilterByCategory();
+        await testAddCategory();
+        await testDeleteCategory();
+      } catch (err) {
+        failCount++;
+        testResults.push({
+          name: '测试执行出错',
+          pass: false,
+          detail: err.message
+        });
+      }
+
+      renderResults();
+
+      // 清理
+      await cleanTestData();
+    }
+  </script>
+</body>
+</html>

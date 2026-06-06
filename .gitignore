@@ -1,0 +1,22 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# 环境变量
+.env
+.env.local
+
+# 依赖
+node_modules/
+
+# 日志
+*.log
+
+# 录屏/大文件
+*.mov
+*.mp4

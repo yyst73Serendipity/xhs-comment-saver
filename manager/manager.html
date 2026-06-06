@@ -1,0 +1,64 @@
+<!--
+  manager.html - 评论收藏管理页面
+  左侧分类栏 + 右侧评论列表，支持搜索、筛选、管理收藏
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>小红书评论收藏</title>
+  <link rel="stylesheet" href="manager.css">
+</head>
+<body>
+  <div class="app">
+    <!-- 顶部栏 -->
+    <header class="header">
+      <h1 class="header-title">我的收藏</h1>
+      <span class="header-count" id="total-count">共 0 条</span>
+    </header>
+
+    <div class="main">
+      <!-- 左侧分类栏 -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <span>分类</span>
+          <button class="btn-add-cat" id="btn-add-cat" title="新建分类">+</button>
+        </div>
+        <ul class="category-list" id="category-list">
+          <!-- 动态渲染 -->
+        </ul>
+        <!-- 新建分类输入框（默认隐藏） -->
+        <div class="new-cat-input hidden" id="new-cat-input">
+          <input type="text" placeholder="输入分类名" maxlength="20" id="input-cat-name">
+          <button class="btn-confirm" id="btn-confirm-cat">确定</button>
+          <button class="btn-cancel" id="btn-cancel-cat">取消</button>
+        </div>
+      </aside>
+
+      <!-- 右侧评论列表 -->
+      <section class="content">
+        <!-- 搜索和操作栏 -->
+        <div class="toolbar">
+          <input type="text" class="search-input" id="search-input" placeholder="搜索收藏的评论...">
+          <span class="category-badge" id="current-category-label">全部</span>
+        </div>
+
+        <!-- 评论列表 -->
+        <div class="comment-list" id="comment-list">
+          <!-- 动态渲染 -->
+        </div>
+
+        <!-- 空状态 -->
+        <div class="empty-state hidden" id="empty-state">
+          <div class="empty-icon">📋</div>
+          <p>还没有收藏的评论</p>
+          <p class="empty-hint">去小红书浏览帖子，点击评论旁的收藏按钮吧</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="manager.js"></script>
+</body>
+</html>
