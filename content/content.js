@@ -573,7 +573,7 @@ async function init() {
       });
     }
   } catch (err) {
-    categories = ['干货', '好物', '攻略', '避雷', '其他'];
+    categories = ['好物', '避雷', 'ai学习'];
   }
 
   scanAndInject();

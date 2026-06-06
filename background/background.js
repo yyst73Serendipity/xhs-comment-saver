@@ -4,7 +4,7 @@
  */
 
 /* 默认分类列表 */
-const DEFAULT_CATEGORIES = ['干货', '好物', '攻略', '避雷', '其他'];
+const DEFAULT_CATEGORIES = ['好物', '避雷', 'ai学习'];
 
 /* 存储键名 */
 const STORAGE_KEY_COMMENTS = 'xhs_comments';
@@ -134,9 +134,10 @@ async function deleteCategory(name) {
   const categories = await getCategories();
   const filtered = categories.filter(c => c !== name);
   await chrome.storage.local.set({ [STORAGE_KEY_CATEGORIES]: filtered });
-  // 将该分类下的评论移到「其他」分类
+  // 将该分类下的评论移到第一个剩余分类
   const comments = await getComments();
-  const updated = comments.map(c => c.category === name ? { ...c, category: '其他' } : c);
+  const fallback = filtered[0] || '好物';
+  const updated = comments.map(c => c.category === name ? { ...c, category: fallback } : c);
   await chrome.storage.local.set({ [STORAGE_KEY_COMMENTS]: updated });
   return filtered;
 }

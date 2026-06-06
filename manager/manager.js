@@ -44,7 +44,7 @@ async function init() {
   } catch (err) {
     // 直接读取 storage（background 可能未响应）
     const result = await chrome.storage.local.get(['xhs_categories', 'xhs_comments']);
-    categories = result.xhs_categories || ['干货', '好物', '攻略', '避雷', '其他'];
+    categories = result.xhs_categories || ['好物', '避雷', 'ai学习'];
     comments = result.xhs_comments || [];
   }
 
@@ -444,7 +444,8 @@ async function deleteCategoryHandler(name) {
     return;
   }
 
-  if (!confirm(`确定删除分类「${name}」吗？该分类下的评论将移至「其他」。`)) {
+  const fallbackCat = categories.find(c => c !== name) || '好物';
+  if (!confirm(`确定删除分类「${name}」吗？该分类下的评论将移至「${fallbackCat}」。`)) {
     return;
   }
 
@@ -469,7 +470,7 @@ async function deleteCategoryHandler(name) {
   } catch (err) {
     // 直接操作 storage
     categories = categories.filter(c => c !== name);
-    comments = comments.map(c => c.category === name ? { ...c, category: '其他' } : c);
+    comments = comments.map(c => c.category === name ? { ...c, category: fallbackCat } : c);
     await chrome.storage.local.set({
       xhs_categories: categories,
       xhs_comments: comments
