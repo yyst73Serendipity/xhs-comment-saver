@@ -34,61 +34,44 @@ let activePicker = null;
 let selectedElements = new Set();  // 当前选中的评论 DOM 元素集合
 
 /**
- * 尝试多种选择器查找评论区的最外层评论容器元素
- * 只返回最外层且包含作者信息的评论元素，排除容器和列表元素
+ * 尝试多种选择器查找评论区的最外层评论元素
+ * 返回叶子评论节点列表（每个节点代表一条独立评论）
  * @returns {Array} 评论容器元素列表
  */
 function findCommentElements() {
-  // 优先用更精确的选择器，逐步降级
   const selectors = [
-    '[class*="comment-item"]:not([class*="list"]):not([class*="group"])',
+    '[class*="comment-item"]',
     '[class*="CommentItem"]',
     '[class*="commentItem"]',
     '[class*="note-comment"]',
-    '[class*="comment"]:not([class*="comment-list"]):not([class*="comments"])',
+    '[class*="comment"]',
   ];
-
-  // 先找到评论区外层容器（缩小查找范围）
-  let parentContainer = document.body;
-  const containerSelectors = [
-    '[class*="comment-list"]', '[class*="comments-container"]',
-    '[class*="note-comments"]', '[class*="Comments"]',
-  ];
-  for (const sel of containerSelectors) {
-    const container = document.querySelector(sel);
-    if (container && container.children.length >= 1) {
-      parentContainer = container;
-      break;
-    }
-  }
 
   for (const selector of selectors) {
-    const allMatches = parentContainer.querySelectorAll(selector);
+    const allMatches = document.querySelectorAll(selector);
     if (allMatches.length === 0) continue;
 
-    const outermost = Array.from(allMatches).filter(el => {
+    const result = Array.from(allMatches).filter(el => {
       if (el.hasAttribute(`data-${PREFIX}-processed`)) return false;
 
-      // 排除过大元素（可能是列表容器）
+      // 排除评论区外层大容器：子元素过多
       const childCount = el.querySelectorAll('*').length;
       if (childCount > 500) return false;
 
-      // 必须是叶子评论块：不包含其他评论元素
-      const hasNestedComment = Array.from(el.children).some(child => {
-        return selectors.some(s => child.matches(s) || child.querySelector(s));
-      });
-      if (hasNestedComment) return false;
+      // 排除列表容器：自身匹配选择器且包含多个同选择器子元素
+      const sameTagChildren = el.querySelectorAll(selector).length;
+      if (sameTagChildren >= 2) return false;
 
       // 必须有作者信息或合理的文本长度
-      const hasAuthor = el.querySelector('[class*="author"], [class*="name"], [class*="nickname"], [class*="username"], a[href*="user"]');
+      const hasAuthor = el.querySelector('[class*="author"], [class*="name"], [class*="nickname"], [class*="username"], a[href*="/user/"]');
       const textLen = el.textContent.trim().length;
-      if (!hasAuthor && textLen < 10) return false;
+      if (!hasAuthor && textLen < 5) return false;
       if (textLen > 5000) return false;
 
       return true;
     });
 
-    if (outermost.length > 0) return outermost;
+    if (result.length > 0) return result;
   }
   return [];
 }
