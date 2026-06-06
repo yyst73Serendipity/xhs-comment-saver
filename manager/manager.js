@@ -318,7 +318,7 @@ function createCommentCard(comment) {
 }
 
 /**
- * 创建评论组卡片（多条评论一起展示，后面的作为上下文）
+ * 创建评论组卡片（折叠展开模式，默认只展示第一条）
  * @param {Array} group - 同一组的评论数组（已按 groupIndex 排序）
  * @returns {HTMLElement}
  */
@@ -326,57 +326,76 @@ function createCommentGroupCard(group) {
   const wrapper = document.createElement('div');
   wrapper.className = 'comment-group-card';
 
-  group.forEach((comment, index) => {
-    if (index === 0) {
-      // 第一条正常展示
-      wrapper.appendChild(createCommentCard(comment));
-    } else {
-      // 后续评论作为「上下文」缩进展示
-      const ctxCard = document.createElement('div');
-      ctxCard.className = 'comment-context-card';
+  // 第一条正常展示
+  wrapper.appendChild(createCommentCard(group[0]));
 
-      const ctxLabel = document.createElement('div');
-      ctxLabel.className = 'comment-context-label';
-      ctxLabel.textContent = '↳ 上下文 ' + index;
+  const restCount = group.length - 1;
+  if (restCount === 0) return wrapper;
 
-      const ctxText = document.createElement('div');
-      ctxText.className = 'comment-context-text';
-      ctxText.textContent = comment.text;
-
-      const ctxAuthor = document.createElement('span');
-      ctxAuthor.className = 'comment-context-author';
-      ctxAuthor.textContent = comment.author ? '— ' + comment.author : '';
-
-      ctxCard.appendChild(ctxLabel);
-      ctxCard.appendChild(ctxText);
-      ctxCard.appendChild(ctxAuthor);
-
-      // 上下文评论的分类切换
-      const ctxCatSelect = document.createElement('select');
-      ctxCatSelect.className = 'comment-card-cat-select';
-      categories.forEach(cat => {
-        const opt = document.createElement('option');
-        opt.value = cat;
-        opt.textContent = cat;
-        if (cat === comment.category) opt.selected = true;
-        ctxCatSelect.appendChild(opt);
-      });
-      ctxCatSelect.addEventListener('change', () => {
-        changeCommentCategory(comment.id, ctxCatSelect.value);
-      });
-      ctxCard.appendChild(ctxCatSelect);
-
-      // 也支持单独删除这条上下文评论
-      const deleteBtn = document.createElement('button');
-      deleteBtn.className = 'comment-card-delete';
-      deleteBtn.textContent = '删除';
-      deleteBtn.addEventListener('click', () => deleteCommentHandler(comment.id));
-      ctxCard.appendChild(deleteBtn);
-
-      wrapper.appendChild(ctxCard);
-    }
+  // 折叠/展开按钮
+  const toggleBtn = document.createElement('button');
+  toggleBtn.className = 'group-toggle-btn';
+  toggleBtn.textContent = '+ ' + restCount + ' 条关联评论';
+  toggleBtn.addEventListener('click', () => {
+    const expanded = foldContainer.classList.toggle('expanded');
+    toggleBtn.textContent = expanded
+      ? '收起关联评论'
+      : '+ ' + restCount + ' 条关联评论';
   });
 
+  // 折叠容器：包含其余评论，默认隐藏
+  const foldContainer = document.createElement('div');
+  foldContainer.className = 'group-fold-container';
+
+  group.slice(1).forEach((comment, i) => {
+    const ctxCard = document.createElement('div');
+    ctxCard.className = 'comment-context-card';
+
+    const ctxBody = document.createElement('div');
+    ctxBody.className = 'comment-context-body';
+
+    const ctxText = document.createElement('div');
+    ctxText.className = 'comment-context-text';
+    ctxText.textContent = comment.text;
+
+    const ctxAuthor = document.createElement('span');
+    ctxAuthor.className = 'comment-context-author';
+    ctxAuthor.textContent = comment.author ? '— ' + comment.author : '';
+
+    ctxBody.appendChild(ctxText);
+    ctxBody.appendChild(ctxAuthor);
+    ctxCard.appendChild(ctxBody);
+
+    // 操作栏
+    const ctxActions = document.createElement('div');
+    ctxActions.className = 'comment-context-actions';
+
+    const ctxCatSelect = document.createElement('select');
+    ctxCatSelect.className = 'comment-card-cat-select';
+    categories.forEach(cat => {
+      const opt = document.createElement('option');
+      opt.value = cat;
+      opt.textContent = cat;
+      if (cat === comment.category) opt.selected = true;
+      ctxCatSelect.appendChild(opt);
+    });
+    ctxCatSelect.addEventListener('change', () => {
+      changeCommentCategory(comment.id, ctxCatSelect.value);
+    });
+    ctxActions.appendChild(ctxCatSelect);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'comment-card-delete';
+    deleteBtn.textContent = '删除';
+    deleteBtn.addEventListener('click', () => deleteCommentHandler(comment.id));
+    ctxActions.appendChild(deleteBtn);
+
+    ctxCard.appendChild(ctxActions);
+    foldContainer.appendChild(ctxCard);
+  });
+
+  wrapper.appendChild(toggleBtn);
+  wrapper.appendChild(foldContainer);
   return wrapper;
 }
 
