@@ -123,16 +123,16 @@
       await cleanTestData();
 
       // 模拟 background 的初始化逻辑
-      const DEFAULT_CATEGORIES = ['好物', '避雷'];
+      const DEFAULT_CATEGORIES = ['未分类', '好物', '避雷', '搞笑'];
       await chrome.storage.local.set({ [STORAGE_KEY_CATEGORIES]: DEFAULT_CATEGORIES });
       await chrome.storage.local.set({ [STORAGE_KEY_COMMENTS]: [] });
 
       const result = await chrome.storage.local.get(STORAGE_KEY_CATEGORIES);
       const categories = result[STORAGE_KEY_CATEGORIES];
 
-      const pass = assertEqual(categories.length, 2, '默认分类数量为 2')
-        && assertEqual(categories[0], '好物', '第一个分类是「好物」')
-        && assertEqual(categories[1], '避雷', '最后一个分类是「避雷」');
+      const pass = assertEqual(categories.length, 4, '默认分类数量为 4')
+        && assertEqual(categories[0], '未分类', '第一个分类是「未分类」')
+        && assertEqual(categories[3], '搞笑', '最后一个分类是「搞笑」');
 
       recordResult('初始化默认分类', pass, `分类列表: ${categories.join(', ')}`);
     }
@@ -231,6 +231,7 @@
       const comments = [
         { id: 'a', text: '好物评论', author: 'A', postUrl: '', postTitle: '', category: '好物', savedAt: 1 },
         { id: 'b', text: '避雷评论', author: 'B', postUrl: '', postTitle: '', category: '避雷', savedAt: 2 },
+        { id: 'c', text: '搞笑评论', author: 'C', postUrl: '', postTitle: '', category: '搞笑', savedAt: 3 },
       ];
       await chrome.storage.local.set({ [STORAGE_KEY_COMMENTS]: comments });
 
@@ -238,11 +239,11 @@
       const all = result[STORAGE_KEY_COMMENTS];
       const filtered = all.filter(c => c.category === '好物');
 
-      const pass = assertEqual(all.length, 2, '总共 2 条评论')
+      const pass = assertEqual(all.length, 3, '总共 3 条评论')
         && assertEqual(filtered.length, 1, '好物分类下有 1 条')
         && assertEqual(filtered[0].text, '好物评论', '筛选结果正确');
 
-      recordResult('按分类筛选评论', pass, `共 2 条评论，好物分类 1 条`);
+      recordResult('按分类筛选评论', pass, `共 3 条评论，好物分类 1 条`);
     }
 
     /**
@@ -251,7 +252,7 @@
     async function testAddCategory() {
       await cleanTestData();
 
-      const categories = ['好物', '避雷'];
+      const categories = ['未分类', '好物', '避雷', '搞笑'];
       await chrome.storage.local.set({ [STORAGE_KEY_CATEGORIES]: categories });
 
       // 新增分类
@@ -266,7 +267,7 @@
       result = await chrome.storage.local.get(STORAGE_KEY_CATEGORIES);
       list = result[STORAGE_KEY_CATEGORIES];
 
-      const pass = assertEqual(list.length, 3, '新增后分类数量为 3')
+      const pass = assertEqual(list.length, 5, '新增后分类数量为 5')
         && assertEqual(list.includes(newCat), true, '新分类「工具推荐」已添加');
 
       recordResult('新增分类', pass, `分类列表: ${list.join(', ')}`);
@@ -278,7 +279,7 @@
     async function testDeleteCategory() {
       await cleanTestData();
 
-      const categories = ['好物', '避雷'];
+      const categories = ['未分类', '好物', '避雷', '搞笑'];
       const comments = [
         { id: '1', text: '待移动评论', author: 'A', postUrl: '', postTitle: '', category: '避雷', savedAt: 1 },
       ];
@@ -307,7 +308,7 @@
       catList = result[STORAGE_KEY_CATEGORIES];
       commentList = result[STORAGE_KEY_COMMENTS];
 
-      const pass = assertEqual(catList.length, 1, '删除后分类数量为 1')
+      const pass = assertEqual(catList.length, 3, '删除后分类数量为 3')
         && assertEqual(catList.includes('避雷'), false, '「避雷」分类已删除')
         && assertEqual(commentList[0].category, '好物', '原评论已移至「好物」');
 

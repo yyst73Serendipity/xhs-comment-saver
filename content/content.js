@@ -317,12 +317,12 @@ function createCategoryPicker(commentsData, anchorEl) {
   const picker = document.createElement('div');
   picker.className = `${PREFIX}-picker`;
 
-  // 标题：显示收藏数量
+  // 标题：显示收藏数量，提示可点击外部自动归入未分类
   const header = document.createElement('div');
   header.className = `${PREFIX}-picker-header`;
   header.textContent = commentsData.length > 1
-    ? `收藏 ${commentsData.length} 条评论（含上下文）`
-    : '选择收藏分类';
+    ? `收下 ${commentsData.length} 条评论`
+    : '选择分类，或点击外部自动归入「未分类」';
   picker.appendChild(header);
 
   // 分类列表
@@ -407,13 +407,35 @@ function createCategoryPicker(commentsData, anchorEl) {
   footer.appendChild(addBtn);
   picker.appendChild(footer);
 
-  // 点击外部关闭
+  // 保存到未分类的通用函数
+  const saveToDefault = async () => {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'saveCommentGroup',
+        data: { comments: commentsData.map(c => ({ ...c, category: '未分类' })) }
+      });
+      if (response.success) {
+        commentsData.forEach(c => {
+          if (c.commentId) savedCommentIds.add(c.commentId);
+          if (c.key) savedCommentKeys.add(c.key);
+        });
+        clearSelection();
+        refreshButtons();
+        showToast(`已收入囊中 ${commentsData.length} 条 → 未分类`);
+      }
+    } catch (err) {
+      showToast('收藏失败，请重试');
+    }
+  };
+
+  // 点击外部 → 自动归入「未分类」
   picker.addEventListener('click', (e) => e.stopPropagation());
   const closeHandler = (e) => {
     if (!picker.contains(e.target)) {
       picker.remove();
       activePicker = null;
       document.removeEventListener('click', closeHandler);
+      saveToDefault();
     }
   };
   setTimeout(() => document.addEventListener('click', closeHandler), 0);
@@ -607,7 +629,7 @@ async function init() {
       });
     }
   } catch (err) {
-    categories = ['好物', '避雷', '搞笑'];
+    categories = ['未分类', '好物', '避雷', '搞笑'];
   }
 
   scanAndInject();

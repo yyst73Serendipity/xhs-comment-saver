@@ -248,6 +248,24 @@ body {
   background: rgba(255, 36, 66, 0.04);
 }
 
+.btn-clear {
+  padding: 7px 14px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: #fff;
+  color: #ccc;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.btn-clear:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.04);
+}
+
 
 /* 评论列表 */
 .comment-list {

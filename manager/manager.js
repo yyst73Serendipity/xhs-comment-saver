@@ -22,6 +22,7 @@ const btnConfirmCat = document.getElementById('btn-confirm-cat');
 const btnCancelCat = document.getElementById('btn-cancel-cat');
 const btnExport = document.getElementById('btn-export');
 const btnImport = document.getElementById('btn-import');
+const btnClear = document.getElementById('btn-clear');
 const importFile = document.getElementById('import-file');
 
 /**
@@ -43,7 +44,7 @@ async function init() {
   } catch (err) {
     // 直接读取 storage（background 可能未响应）
     const result = await chrome.storage.local.get(['xhs_categories', 'xhs_comments']);
-    categories = result.xhs_categories || ['好物', '避雷'];
+    categories = result.xhs_categories || ['未分类', '好物', '避雷', '搞笑'];
     comments = result.xhs_comments || [];
   }
 
@@ -74,10 +75,11 @@ function renderCategories() {
   allItem.addEventListener('click', () => selectCategory('全部'));
   categoryList.appendChild(allItem);
 
-  // 各分类项
+  // 各分类项（「未分类」也不可操作）
   categories.forEach(cat => {
     const count = comments.filter(c => c.category === cat).length;
-    const item = createCategoryItem(cat, count, true);
+    const editable = cat !== '未分类';
+    const item = createCategoryItem(cat, count, editable);
     if (currentCategory === cat) {
       item.classList.add('active');
     }
@@ -455,6 +457,10 @@ async function deleteCommentHandler(id) {
  * @param {string} name - 分类名
  */
 async function deleteCategoryHandler(name) {
+  if (name === '未分类') {
+    alert('「未分类」不可删除');
+    return;
+  }
   // 不允许删除最后一个分类
   if (categories.length <= 1) {
     alert('至少保留一个分类');
@@ -503,6 +509,10 @@ async function deleteCategoryHandler(name) {
  * @param {string} oldName - 旧分类名
  */
 function startRenameCategory(oldName) {
+  if (oldName === '未分类') {
+    alert('「未分类」不可重命名');
+    return;
+  }
   const newName = prompt('请输入新分类名：', oldName);
   if (!newName || newName.trim() === '' || newName.trim() === oldName) return;
 
@@ -597,7 +607,7 @@ async function addNewCategory() {
  * 更新评论总数
  */
 function updateTotalCount() {
-  totalCount.textContent = `共 ${comments.length} 条`;
+  totalCount.textContent = comments.length > 0 ? `已捕获 ${comments.length} 条宝藏` : '空空如也';
 }
 
 /**
@@ -721,6 +731,15 @@ searchInput.addEventListener('input', () => {
   searchKeyword = searchInput.value.trim();
   renderComments();
   updateEmptyState();
+});
+
+// 清空数据按钮
+btnClear.addEventListener('click', async () => {
+  if (!confirm('确定清空所有收藏数据和分类吗？此操作不可恢复。\n\n建议先导出备份。')) return;
+  await chrome.storage.local.remove(['xhs_categories', 'xhs_comments']);
+  // 恢复默认分类
+  await chrome.storage.local.set({ xhs_categories: ['未分类', '好物', '避雷', '搞笑'] });
+  location.reload();
 });
 
 // 导出按钮

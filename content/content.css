@@ -45,15 +45,15 @@
 
 /* 按钮文字标签 */
 .xhs-cs-btn::after {
-  content: '收藏';
+  content: '收下';
 }
 
 .xhs-cs-btn.xhs-cs-saved::after {
-  content: '已收藏';
+  content: '已收入囊中';
 }
 
 .xhs-cs-btn.xhs-cs-has-selection::after {
-  content: '收藏(' attr(data-count) '条)';
+  content: '收下(' attr(data-count) '条)';
 }
 
 /* 分类选择器浮窗 */

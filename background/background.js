@@ -4,7 +4,7 @@
  */
 
 /* 默认分类列表 */
-const DEFAULT_CATEGORIES = ['好物', '避雷'];
+const DEFAULT_CATEGORIES = ['未分类', '好物', '避雷', '搞笑'];
 
 /* 存储键名 */
 const STORAGE_KEY_COMMENTS = 'xhs_comments';
@@ -131,6 +131,7 @@ async function addCategory(name) {
  * @returns {Promise<Array>} 更新后的分类列表
  */
 async function deleteCategory(name) {
+  if (name === '未分类') throw new Error('「未分类」不可删除');
   const categories = await getCategories();
   const filtered = categories.filter(c => c !== name);
   await chrome.storage.local.set({ [STORAGE_KEY_CATEGORIES]: filtered });
@@ -149,6 +150,7 @@ async function deleteCategory(name) {
  * @returns {Promise<Array>} 更新后的分类列表
  */
 async function renameCategory(oldName, newName) {
+  if (oldName === '未分类') throw new Error('「未分类」不可重命名');
   const categories = await getCategories();
   if (categories.includes(newName)) {
     throw new Error('目标分类名已存在');
