@@ -412,13 +412,13 @@ function createCommentCard(comment) {
     noteView.style.display = newNote ? 'block' : 'none';
   });
 
-  // 初始状态：有笔记显示查看态，无笔记显示编辑态
+  // 初始状态：有笔记显示查看态，无笔记默认显示编辑态（hover 卡片可见）
   if (comment.note) {
     noteView.style.display = 'block';
     noteEdit.style.display = 'none';
   } else {
     noteView.style.display = 'none';
-    noteEdit.style.display = 'none';
+    noteEdit.style.display = 'block';
   }
 
   noteContainer.appendChild(noteView);
@@ -757,11 +757,19 @@ function generateShareCard(comment) {
   const w = 600;
   const padding = 40;
 
-  // 计算文本高度
   ctx.font = '16px Georgia, "Songti SC", "Noto Serif SC", serif';
   const textLines = wrapText(ctx, comment.text, w - padding * 2);
   const noteLines = comment.note ? wrapText(ctx, '笔记：' + comment.note, w - padding * 2) : [];
-  const cardHeight = padding + 60 + textLines.length * 28 + (noteLines.length > 0 ? 40 + noteLines.length * 28 : 0) + 100;
+
+  // 来源链接和标题
+  ctx.font = '11px Georgia, "Songti SC", "Noto Serif SC", serif';
+  const sourceText = '来自：' + (comment.postTitle || '小红书');
+  const sourceLines = wrapText(ctx, sourceText, w - padding * 2);
+  const urlLines = wrapText(ctx, comment.postUrl || '', w - padding * 2);
+
+  const cardHeight = padding + 60 + textLines.length * 28
+    + (noteLines.length > 0 ? 30 + noteLines.length * 28 : 0)
+    + 30 + sourceLines.length * 20 + urlLines.length * 20 + 50;
 
   canvas.width = w;
   canvas.height = cardHeight;
@@ -811,7 +819,7 @@ function generateShareCard(comment) {
   }
 
   // 底部分隔
-  y += 10;
+  y += 15;
   ctx.strokeStyle = '#8b7355';
   ctx.lineWidth = 0.5;
   ctx.beginPath();
@@ -819,24 +827,75 @@ function generateShareCard(comment) {
   ctx.lineTo(w - padding, y);
   ctx.stroke();
 
-  // 来源
+  // 来源标题
   y += 25;
   ctx.fillStyle = '#8b7355';
   ctx.font = '11px Georgia, "Songti SC", "Noto Serif SC", serif';
-  ctx.fillText('来自：' + (comment.postTitle || '小红书'), padding, y);
-  y += 18;
-  ctx.font = '10px Georgia, serif';
-  ctx.fillText(comment.postUrl || '', padding, y);
+  sourceLines.forEach(line => {
+    ctx.fillText(line, padding, y);
+    y += 20;
+  });
 
-  // 下载
-  canvas.toBlob(blob => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'xhs-comment-share.png';
-    a.click();
-    URL.revokeObjectURL(url);
-  }, 'image/png');
+  // 来源链接（可多行）
+  ctx.fillStyle = '#6b5b4f';
+  ctx.font = '10px Georgia, serif';
+  urlLines.forEach(line => {
+    ctx.fillText(line, padding, y);
+    y += 20;
+  });
+
+  // 预览弹窗
+  showSharePreview(canvas);
+}
+
+/**
+ * 显示分享卡片预览弹窗
+ */
+function showSharePreview(canvas) {
+  // 移除已有弹窗
+  const existing = document.querySelector('.share-preview-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'share-preview-overlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+
+  const dialog = document.createElement('div');
+  dialog.className = 'share-preview-dialog';
+  dialog.appendChild(canvas);
+  canvas.style.maxWidth = '100%';
+  canvas.style.height = 'auto';
+  canvas.style.borderRadius = '8px';
+  canvas.style.boxShadow = '0 8px 32px rgba(0,0,0,0.2)';
+
+  // 操作按钮区
+  const actions = document.createElement('div');
+  actions.className = 'share-preview-actions';
+
+  const downloadBtn = document.createElement('button');
+  downloadBtn.textContent = '下载图片';
+  downloadBtn.addEventListener('click', () => {
+    canvas.toBlob(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'xhs-comment-share.png';
+      a.click();
+      URL.revokeObjectURL(url);
+    }, 'image/png');
+  });
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '关闭';
+  closeBtn.addEventListener('click', () => overlay.remove());
+
+  actions.appendChild(downloadBtn);
+  actions.appendChild(closeBtn);
+  dialog.appendChild(actions);
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
 }
 
 /**

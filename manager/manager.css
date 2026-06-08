@@ -376,7 +376,6 @@ body {
 
 /* 删除按钮 */
 .comment-card-delete {
-  margin-left: auto;
   border: none;
   background: transparent;
   color: #ccc;
@@ -402,6 +401,10 @@ body {
   padding: 4px 8px;
   border-radius: 4px;
   transition: all 0.15s;
+}
+
+.comment-card-action-btn:first-of-type {
+  margin-left: auto;
 }
 
 .comment-card-action-btn:hover {
@@ -578,4 +581,68 @@ body {
 /* 通用隐藏类 */
 .hidden {
   display: none !important;
+}
+
+/* 分享预览弹窗 */
+.share-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: xhs-fade-in 0.2s ease;
+}
+
+@keyframes xhs-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.share-preview-dialog {
+  max-width: 640px;
+  width: 90%;
+  padding: 20px;
+  animation: xhs-scale-in 0.25s ease;
+}
+
+@keyframes xhs-scale-in {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.share-preview-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.share-preview-actions button {
+  padding: 10px 28px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+
+.share-preview-actions button:first-child {
+  background: #ff2442;
+  color: #fff;
+}
+
+.share-preview-actions button:first-child:hover {
+  background: #e81e3a;
+}
+
+.share-preview-actions button:last-child {
+  background: #f0f0f0;
+  color: #666;
+}
+
+.share-preview-actions button:last-child:hover {
+  background: #e0e0e0;
 }
