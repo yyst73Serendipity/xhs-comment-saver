@@ -291,8 +291,45 @@ body {
   font-size: 15px;
   line-height: 1.6;
   color: #333;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
   word-break: break-word;
+}
+
+/* 笔记输入区 */
+.comment-card-note {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border: 1px dashed #e0e0e0;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #555;
+  background: #fefef8;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.comment-card-note::placeholder {
+  color: #ccc;
+  font-style: italic;
+}
+
+.comment-card-note:focus {
+  border-color: #ffc069;
+  border-style: solid;
+  background: #fffef5;
+  box-shadow: 0 0 0 2px rgba(255, 192, 105, 0.15);
+}
+
+.comment-card-note:not(:placeholder-shown) {
+  border-style: solid;
+  border-color: #ffe0a0;
+  background: #fffef7;
 }
 
 .comment-card-meta {

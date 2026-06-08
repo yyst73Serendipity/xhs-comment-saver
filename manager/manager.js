@@ -269,6 +269,45 @@ function createCommentCard(comment) {
   textEl.textContent = comment.text;
   card.appendChild(textEl);
 
+  // 笔记区域（本地私有，不影响帖子）
+  const noteArea = document.createElement('textarea');
+  noteArea.className = 'comment-card-note';
+  noteArea.placeholder = '添加笔记...';
+  noteArea.value = comment.note || '';
+  noteArea.rows = 1;
+  // 自动调整高度
+  noteArea.addEventListener('input', () => {
+    noteArea.style.height = 'auto';
+    noteArea.style.height = noteArea.scrollHeight + 'px';
+  });
+  // 失去焦点时自动保存
+  noteArea.addEventListener('blur', async () => {
+    const newNote = noteArea.value.trim();
+    if (newNote === (comment.note || '')) return;
+    comment.note = newNote;
+    try {
+      await chrome.runtime.sendMessage({
+        action: 'updateNote',
+        id: comment.id,
+        note: newNote
+      });
+    } catch (err) {
+      const all = await chrome.storage.local.get('xhs_comments');
+      const list = all.xhs_comments || [];
+      const target = list.find(c => c.id === comment.id);
+      if (target) target.note = newNote;
+      await chrome.storage.local.set({ xhs_comments: list });
+    }
+  });
+  // 初始化高度
+  if (comment.note) {
+    setTimeout(() => {
+      noteArea.style.height = 'auto';
+      noteArea.style.height = noteArea.scrollHeight + 'px';
+    }, 0);
+  }
+  card.appendChild(noteArea);
+
   // 元信息栏
   const meta = document.createElement('div');
   meta.className = 'comment-card-meta';

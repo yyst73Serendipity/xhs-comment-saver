@@ -169,6 +169,21 @@ async function renameCategory(oldName, newName) {
 }
 
 /**
+ * 更新评论的笔记
+ * @param {string} id - 评论 ID
+ * @param {string} note - 笔记内容
+ * @returns {Promise<Object>} 更新后的评论
+ */
+async function updateCommentNote(id, note) {
+  const comments = await getComments();
+  const comment = comments.find(c => c.id === id);
+  if (!comment) throw new Error('评论不存在');
+  comment.note = note || '';
+  await chrome.storage.local.set({ [STORAGE_KEY_COMMENTS]: comments });
+  return comment;
+}
+
+/**
  * 更新评论的分类
  * @param {string} id - 评论 ID
  * @param {string} category - 新分类名
@@ -196,7 +211,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     addCategory:       () => addCategory(message.name),
     deleteCategory:    () => deleteCategory(message.name),
     renameCategory:    () => renameCategory(message.oldName, message.newName),
-    updateCategory:    () => updateCommentCategory(message.id, message.category)
+    updateCategory:    () => updateCommentCategory(message.id, message.category),
+    updateNote:        () => updateCommentNote(message.id, message.note)
   };
 
   const handler = handlers[message.action];
