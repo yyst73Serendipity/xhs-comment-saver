@@ -26,8 +26,8 @@ const CHECK_ICON = `
 
 /* 全局状态 */
 let categories = [];
-let savedCommentMap = new Map();   // commentId → 已收藏评论对象（按 XHS 评论 ID 索引）
-let savedCommentTexts = new Set(); // 评论文本集合（fallback，commentId 不可用时使用）
+let savedCommentKeys = new Set();  // 已收藏评论的组合键（url|author|text）
+let savedCommentIds = new Set();   // 已收藏评论的 XHS commentId（优先匹配）
 let activePicker = null;
 
 /* 多选状态 */
@@ -168,16 +168,29 @@ function extractPostTitle() {
 }
 
 /**
- * 判断评论是否已收藏（按 XHS 评论 ID 匹配，回退到文本匹配）
+ * 生成评论的组合去重键（帖子URL + 作者 + 正文）
+ * 用作已收藏评论的唯一标识，比纯文本匹配可靠
+ * @param {string} postUrl
+ * @param {string} author
+ * @param {string} text
+ * @returns {string}
+ */
+function makeCommentKey(postUrl, author, text) {
+  return [postUrl, author, text].map(s => (s || '').trim()).join('||');
+}
+
+/**
+ * 判断评论是否已收藏
+ * 优先按 XHS commentId 匹配，回退到组合键匹配
  * @param {Element} commentEl
  * @returns {boolean}
  */
 function isCommentSaved(commentEl) {
   const cid = extractCommentId(commentEl);
-  if (cid && savedCommentMap.has(cid)) return true;
-  // fallback：按文本查
-  const text = extractCommentText(commentEl);
-  return savedCommentTexts.has(text);
+  if (cid && savedCommentIds.has(cid)) return true;
+  // 回退：按组合键匹配
+  const key = makeCommentKey(window.location.href, extractAuthor(commentEl), extractCommentText(commentEl));
+  return savedCommentKeys.has(key);
 }
 
 /**
@@ -186,12 +199,16 @@ function isCommentSaved(commentEl) {
  * @returns {Object}
  */
 function extractCommentData(commentEl) {
+  const author = extractAuthor(commentEl);
+  const text = extractCommentText(commentEl);
+  const postUrl = window.location.href;
   return {
     commentId: extractCommentId(commentEl),
-    text: extractCommentText(commentEl),
-    author: extractAuthor(commentEl),
-    postUrl: window.location.href,
-    postTitle: extractPostTitle()
+    text: text,
+    author: author,
+    postUrl: postUrl,
+    postTitle: extractPostTitle(),
+    key: makeCommentKey(postUrl, author, text)
   };
 }
 
@@ -324,8 +341,8 @@ function createCategoryPicker(commentsData, anchorEl) {
         });
         if (response.success) {
           commentsData.forEach(c => {
-            if (c.commentId) savedCommentMap.set(c.commentId, c);
-            savedCommentTexts.add(c.text);
+            if (c.commentId) savedCommentIds.add(c.commentId);
+            if (c.key) savedCommentKeys.add(c.key);
           });
           picker.remove();
           activePicker = null;
@@ -483,19 +500,17 @@ function injectControls(commentEl) {
 
   const saved = isCommentSaved(commentEl);
 
-  // 创建选择框
-  const checkbox = createCheckbox();
-  checkbox.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    toggleSelection(commentEl);
-  });
-
   // 创建收藏按钮
   const btn = createSaveButton(saved);
   btn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
+
+    // 已收藏的评论不允许再次收藏
+    if (isCommentSaved(commentEl)) {
+      showToast('该评论已收藏');
+      return;
+    }
 
     // 收集要收藏的评论数据：优先使用选中的，否则只收藏当前
     let targetElements;
@@ -518,10 +533,20 @@ function injectControls(commentEl) {
     positionPicker(btn);
   });
 
-  // 将选择框和收藏按钮插入操作栏
+  // 已收藏的评论不显示选择框，未收藏的才显示
   const actionBar = findActionBar(commentEl);
   const target = actionBar || commentEl;
-  target.appendChild(checkbox);
+
+  if (!saved) {
+    const checkbox = createCheckbox();
+    checkbox.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSelection(commentEl);
+    });
+    target.appendChild(checkbox);
+  }
+
   target.appendChild(btn);
   commentEl.setAttribute(`data-${PREFIX}-processed`, 'true');
 }
@@ -565,15 +590,20 @@ async function init() {
     if (catResp.success) categories = catResp.data;
     const commentResp = await chrome.runtime.sendMessage({ action: 'getComments' });
     if (commentResp.success) {
-      savedCommentMap.clear();
-      savedCommentTexts.clear();
+      savedCommentIds.clear();
+      savedCommentKeys.clear();
       commentResp.data.forEach(c => {
-        if (c.commentId) savedCommentMap.set(c.commentId, c);
-        savedCommentTexts.add(c.text);
+        if (c.commentId) savedCommentIds.add(c.commentId);
+        if (c.key) {
+          savedCommentKeys.add(c.key);
+        } else {
+          // 旧数据没有 key 字段，从现有字段重建
+          savedCommentKeys.add(makeCommentKey(c.postUrl, c.author, c.text));
+        }
       });
     }
   } catch (err) {
-    categories = ['好物', '避雷'];
+    categories = ['好物', '避雷', '搞笑'];
   }
 
   scanAndInject();
