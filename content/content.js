@@ -138,10 +138,10 @@ function extractCommentId(commentEl) {
   const dataId = commentEl.getAttribute('data-id') || commentEl.getAttribute('data-comment-id');
   if (dataId && /[a-f0-9]{15,}/i.test(dataId)) return dataId;
 
-  // 2) 查找内部带 ID 的元素（XHS 评论 ID 特征：以 6a 开头，20+ 位 hex）
-  const innerEls = commentEl.querySelectorAll('[id]');
-  for (const el of innerEls) {
-    if (/^[a-f0-9]{20,}$/i.test(el.id)) return el.id;
+  // 2) 仅查找元素自身和直接子元素的 ID（避免深层容器 ID 污染所有评论）
+  const candidates = [commentEl, ...commentEl.children];
+  for (const el of candidates) {
+    if (el.id && /^[a-f0-9]{20,}$/i.test(el.id)) return el.id;
   }
 
   // 3) 查找 href 中包含 comment id 的链接
@@ -186,10 +186,14 @@ function makeCommentKey(postUrl, author, text) {
  * @returns {boolean}
  */
 function isCommentSaved(commentEl) {
+  const text = extractCommentText(commentEl);
+  // 文本太短无法可靠去重，保守地返回 false（避免误判为已收藏）
+  if (!text || text.length < 3) return false;
+
   const cid = extractCommentId(commentEl);
   if (cid && savedCommentIds.has(cid)) return true;
   // 回退：按组合键匹配
-  const key = makeCommentKey(window.location.href, extractAuthor(commentEl), extractCommentText(commentEl));
+  const key = makeCommentKey(window.location.href, extractAuthor(commentEl), text);
   return savedCommentKeys.has(key);
 }
 
