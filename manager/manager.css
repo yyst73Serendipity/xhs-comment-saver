@@ -291,45 +291,16 @@ body {
   font-size: 15px;
   line-height: 1.6;
   color: #333;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
   word-break: break-word;
 }
 
-/* 笔记输入区 */
-.comment-card-note {
-  display: block;
-  width: 100%;
-  margin-bottom: 8px;
-  padding: 8px 12px;
-  border: 1px dashed #e0e0e0;
-  border-radius: 8px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: #555;
-  background: #fefef8;
-  resize: none;
-  overflow: hidden;
-  outline: none;
-  font-family: inherit;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.comment-card-note::placeholder {
-  color: #ccc;
-  font-style: italic;
-}
-
-.comment-card-note:focus {
-  border-color: #ffc069;
-  border-style: solid;
-  background: #fffef5;
-  box-shadow: 0 0 0 2px rgba(255, 192, 105, 0.15);
-}
-
-.comment-card-note:not(:placeholder-shown) {
-  border-style: solid;
-  border-color: #ffe0a0;
-  background: #fffef7;
+/* 搜索高亮 */
+.search-highlight {
+  background: #fff176;
+  color: #333;
+  padding: 0 2px;
+  border-radius: 2px;
 }
 
 .comment-card-meta {
@@ -419,6 +390,79 @@ body {
 .comment-card-delete:hover {
   color: #ff2442;
   background: rgba(255, 36, 66, 0.06);
+}
+
+/* 复制、分享等操作按钮 */
+.comment-card-action-btn {
+  border: none;
+  background: transparent;
+  color: #bbb;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.comment-card-action-btn:hover {
+  color: #ff2442;
+  background: rgba(255, 36, 66, 0.06);
+}
+
+/* 笔记容器（hover 时显示） */
+.comment-card-note-container {
+  display: none;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #eee;
+}
+
+.comment-card:hover .comment-card-note-container {
+  display: block;
+}
+
+/* 笔记查看态（蓝色文字，可点击） */
+.comment-card-note-view {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #2962a0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(41, 98, 160, 0.04);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.comment-card-note-view:hover {
+  background: rgba(41, 98, 160, 0.1);
+}
+
+/* 笔记编辑态 */
+.comment-card-note-edit {
+  display: none;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #b0c4de;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #2962a0;
+  background: #f8fafe;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.comment-card-note-edit::placeholder {
+  color: #b0c4de;
+  font-style: italic;
+}
+
+.comment-card-note-edit:focus {
+  border-color: #2962a0;
+  box-shadow: 0 0 0 2px rgba(41, 98, 160, 0.12);
 }
 
 /* 空状态 */

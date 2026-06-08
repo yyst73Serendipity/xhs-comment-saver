@@ -222,6 +222,31 @@ function renderComments() {
 }
 
 /**
+ * 高亮文本中的搜索关键词
+ * @param {string} text - 原始文本
+ * @param {string} keyword - 搜索关键词
+ * @returns {string} HTML 字符串
+ */
+function highlightText(text, keyword) {
+  if (!keyword) return escapeHtml(text);
+  const escaped = escapeHtml(text);
+  const escapedKw = escapeHtml(keyword);
+  const regex = new RegExp(escapedKw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  return escaped.replace(regex, match => `<mark class="search-highlight">${match}</mark>`);
+}
+
+/**
+ * HTML 转义，防止 XSS
+ * @param {string} str
+ * @returns {string}
+ */
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+/**
  * 格式化时间
  * @param {number} timestamp - 时间戳
  * @returns {string} 格式化后的时间字符串
@@ -263,62 +288,21 @@ function createCommentCard(comment) {
   const card = document.createElement('div');
   card.className = 'comment-card';
 
-  // 评论文本
+  // 评论文本（搜索高亮）
   const textEl = document.createElement('div');
   textEl.className = 'comment-card-text';
-  textEl.textContent = comment.text;
+  textEl.innerHTML = highlightText(comment.text, searchKeyword);
   card.appendChild(textEl);
-
-  // 笔记区域（本地私有，不影响帖子）
-  const noteArea = document.createElement('textarea');
-  noteArea.className = 'comment-card-note';
-  noteArea.placeholder = '添加笔记...';
-  noteArea.value = comment.note || '';
-  noteArea.rows = 1;
-  // 自动调整高度
-  noteArea.addEventListener('input', () => {
-    noteArea.style.height = 'auto';
-    noteArea.style.height = noteArea.scrollHeight + 'px';
-  });
-  // 失去焦点时自动保存
-  noteArea.addEventListener('blur', async () => {
-    const newNote = noteArea.value.trim();
-    if (newNote === (comment.note || '')) return;
-    comment.note = newNote;
-    try {
-      await chrome.runtime.sendMessage({
-        action: 'updateNote',
-        id: comment.id,
-        note: newNote
-      });
-    } catch (err) {
-      const all = await chrome.storage.local.get('xhs_comments');
-      const list = all.xhs_comments || [];
-      const target = list.find(c => c.id === comment.id);
-      if (target) target.note = newNote;
-      await chrome.storage.local.set({ xhs_comments: list });
-    }
-  });
-  // 初始化高度
-  if (comment.note) {
-    setTimeout(() => {
-      noteArea.style.height = 'auto';
-      noteArea.style.height = noteArea.scrollHeight + 'px';
-    }, 0);
-  }
-  card.appendChild(noteArea);
 
   // 元信息栏
   const meta = document.createElement('div');
   meta.className = 'comment-card-meta';
 
-  // 作者
   const author = document.createElement('span');
   author.className = 'comment-card-author';
   author.textContent = comment.author || '';
   meta.appendChild(author);
 
-  // 分类切换下拉框
   const catSelect = document.createElement('select');
   catSelect.className = 'comment-card-cat-select';
   categories.forEach(cat => {
@@ -333,7 +317,6 @@ function createCommentCard(comment) {
   });
   meta.appendChild(catSelect);
 
-  // 来源链接
   const link = document.createElement('a');
   link.className = 'comment-card-link';
   link.textContent = '查看原帖';
@@ -341,11 +324,35 @@ function createCommentCard(comment) {
   link.target = '_blank';
   meta.appendChild(link);
 
-  // 收藏时间
   const time = document.createElement('span');
   time.className = 'comment-card-time';
   time.textContent = formatTime(comment.savedAt);
   meta.appendChild(time);
+
+  // 复制按钮（仅复制评论文本）
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'comment-card-action-btn';
+  copyBtn.textContent = '复制';
+  copyBtn.title = '复制评论原文';
+  copyBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(comment.text).then(() => {
+      copyBtn.textContent = '已复制';
+      setTimeout(() => { copyBtn.textContent = '复制'; }, 1500);
+    });
+  });
+  meta.appendChild(copyBtn);
+
+  // 分享按钮（生成复古卡片图片）
+  const shareBtn = document.createElement('button');
+  shareBtn.className = 'comment-card-action-btn';
+  shareBtn.textContent = '分享';
+  shareBtn.title = '生成分享卡片';
+  shareBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    generateShareCard(comment);
+  });
+  meta.appendChild(shareBtn);
 
   // 删除按钮
   const deleteBtn = document.createElement('button');
@@ -355,6 +362,69 @@ function createCommentCard(comment) {
   meta.appendChild(deleteBtn);
 
   card.appendChild(meta);
+
+  // 笔记区域（hover 时显示，点击切换查看/编辑）
+  const noteContainer = document.createElement('div');
+  noteContainer.className = 'comment-card-note-container';
+
+  // 查看态
+  const noteView = document.createElement('div');
+  noteView.className = 'comment-card-note-view';
+  noteView.textContent = comment.note || '';
+  noteView.addEventListener('click', () => {
+    noteView.style.display = 'none';
+    noteEdit.style.display = 'block';
+    noteEdit.focus();
+  });
+
+  // 编辑态
+  const noteEdit = document.createElement('textarea');
+  noteEdit.className = 'comment-card-note-edit';
+  noteEdit.placeholder = '添加笔记...';
+  noteEdit.value = comment.note || '';
+  noteEdit.rows = 1;
+  noteEdit.addEventListener('input', () => {
+    noteEdit.style.height = 'auto';
+    noteEdit.style.height = noteEdit.scrollHeight + 'px';
+  });
+  noteEdit.addEventListener('blur', async () => {
+    noteEdit.style.height = 'auto';
+    noteEdit.style.height = noteEdit.scrollHeight + 'px';
+    const newNote = noteEdit.value.trim();
+    if (newNote === (comment.note || '')) {
+      // 切回查看态
+      noteEdit.style.display = 'none';
+      noteView.style.display = newNote ? 'block' : 'none';
+      return;
+    }
+    comment.note = newNote;
+    noteView.textContent = newNote;
+    try {
+      await chrome.runtime.sendMessage({ action: 'updateNote', id: comment.id, note: newNote });
+    } catch (err) {
+      const all = await chrome.storage.local.get('xhs_comments');
+      const list = all.xhs_comments || [];
+      const target = list.find(c => c.id === comment.id);
+      if (target) target.note = newNote;
+      await chrome.storage.local.set({ xhs_comments: list });
+    }
+    noteEdit.style.display = 'none';
+    noteView.style.display = newNote ? 'block' : 'none';
+  });
+
+  // 初始状态：有笔记显示查看态，无笔记显示编辑态
+  if (comment.note) {
+    noteView.style.display = 'block';
+    noteEdit.style.display = 'none';
+  } else {
+    noteView.style.display = 'none';
+    noteEdit.style.display = 'none';
+  }
+
+  noteContainer.appendChild(noteView);
+  noteContainer.appendChild(noteEdit);
+  card.appendChild(noteContainer);
+
   return card;
 }
 
@@ -397,7 +467,7 @@ function createCommentGroupCard(group) {
 
     const ctxText = document.createElement('div');
     ctxText.className = 'comment-context-text';
-    ctxText.textContent = comment.text;
+    ctxText.innerHTML = highlightText(comment.text, searchKeyword);
 
     const ctxAuthor = document.createElement('span');
     ctxAuthor.className = 'comment-context-author';
@@ -675,6 +745,131 @@ function getFilteredCount() {
     );
   }
   return filtered.length;
+}
+
+/**
+ * 生成复古风格分享卡片并下载
+ * @param {Object} comment - 评论数据
+ */
+function generateShareCard(comment) {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  const w = 600;
+  const padding = 40;
+
+  // 计算文本高度
+  ctx.font = '16px Georgia, "Songti SC", "Noto Serif SC", serif';
+  const textLines = wrapText(ctx, comment.text, w - padding * 2);
+  const noteLines = comment.note ? wrapText(ctx, '笔记：' + comment.note, w - padding * 2) : [];
+  const cardHeight = padding + 60 + textLines.length * 28 + (noteLines.length > 0 ? 40 + noteLines.length * 28 : 0) + 100;
+
+  canvas.width = w;
+  canvas.height = cardHeight;
+
+  // 复古纸张底色 + 纹理
+  ctx.fillStyle = '#f5f0e6';
+  ctx.fillRect(0, 0, w, cardHeight);
+  addNoiseTexture(ctx, w, cardHeight);
+
+  // 外边框
+  ctx.strokeStyle = '#8b7355';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(10, 10, w - 20, cardHeight - 20);
+
+  // 内边框
+  ctx.strokeStyle = '#c4a97d';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.strokeRect(18, 18, w - 36, cardHeight - 36);
+  ctx.setLineDash([]);
+
+  // 顶部装饰
+  ctx.fillStyle = '#8b7355';
+  ctx.font = 'bold 18px Georgia, "Songti SC", "Noto Serif SC", serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('—— 小红书评论收藏 ——', w / 2, padding + 30);
+
+  // 评论正文
+  ctx.fillStyle = '#3d2b1f';
+  ctx.font = '16px Georgia, "Songti SC", "Noto Serif SC", serif';
+  ctx.textAlign = 'left';
+  let y = padding + 80;
+  textLines.forEach(line => {
+    ctx.fillText(line, padding, y);
+    y += 28;
+  });
+
+  // 笔记
+  if (noteLines.length > 0) {
+    y += 20;
+    ctx.fillStyle = '#2a5c8a';
+    ctx.font = 'italic 14px Georgia, "Songti SC", "Noto Serif SC", serif';
+    noteLines.forEach(line => {
+      ctx.fillText(line, padding, y);
+      y += 28;
+    });
+  }
+
+  // 底部分隔
+  y += 10;
+  ctx.strokeStyle = '#8b7355';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(padding, y);
+  ctx.lineTo(w - padding, y);
+  ctx.stroke();
+
+  // 来源
+  y += 25;
+  ctx.fillStyle = '#8b7355';
+  ctx.font = '11px Georgia, "Songti SC", "Noto Serif SC", serif';
+  ctx.fillText('来自：' + (comment.postTitle || '小红书'), padding, y);
+  y += 18;
+  ctx.font = '10px Georgia, serif';
+  ctx.fillText(comment.postUrl || '', padding, y);
+
+  // 下载
+  canvas.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'xhs-comment-share.png';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, 'image/png');
+}
+
+/**
+ * 文本换行
+ */
+function wrapText(ctx, text, maxWidth) {
+  const lines = [];
+  let current = '';
+  for (const char of text) {
+    const test = current + char;
+    if (ctx.measureText(test).width > maxWidth && current.length > 0) {
+      lines.push(current);
+      current = char;
+    } else {
+      current = test;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+/**
+ * 添加噪点纹理
+ */
+function addNoiseTexture(ctx, w, h) {
+  const imageData = ctx.getImageData(0, 0, w, h);
+  for (let i = 0; i < imageData.data.length; i += 4) {
+    const noise = (Math.random() - 0.5) * 10;
+    imageData.data[i] += noise;
+    imageData.data[i + 1] += noise;
+    imageData.data[i + 2] += noise;
+  }
+  ctx.putImageData(imageData, 0, 0);
 }
 
 /**
