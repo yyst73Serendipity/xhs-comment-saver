@@ -374,6 +374,11 @@ function createCommentCard(comment) {
   noteView.addEventListener('click', () => {
     noteView.style.display = 'none';
     noteEdit.style.display = 'block';
+    // 等浏览器完成重排后再计算高度
+    requestAnimationFrame(() => {
+      noteEdit.style.height = 'auto';
+      noteEdit.style.height = noteEdit.scrollHeight + 'px';
+    });
     noteEdit.focus();
   });
 
