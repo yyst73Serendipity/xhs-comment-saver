@@ -47,26 +47,39 @@ function findCommentElements() {
     '[class*="comment"]',
   ];
 
+  // 先找评论区外层容器，缩小搜索范围
+  let searchRoot = document.body;
+  const zoneSelectors = [
+    '[class*="comment-container"]', '[class*="comments-container"]',
+    '[class*="comment-area"]', '[class*="CommentsContainer"]',
+    '[class*="note-comments"]', '[id*="comment"]',
+  ];
+  for (const sel of zoneSelectors) {
+    const zone = document.querySelector(sel);
+    if (zone && zone.querySelectorAll(selectors[0]).length > 0) {
+      searchRoot = zone;
+      break;
+    }
+  }
+
   for (const selector of selectors) {
-    const allMatches = document.querySelectorAll(selector);
+    const allMatches = searchRoot.querySelectorAll(selector);
     if (allMatches.length === 0) continue;
 
     const result = Array.from(allMatches).filter(el => {
       if (el.hasAttribute(`data-${PREFIX}-processed`)) return false;
 
-      // 排除评论区外层大容器：子元素过多
+      // 排除过大容器元素
       const childCount = el.querySelectorAll('*').length;
-      if (childCount > 500) return false;
+      if (childCount > 300) return false;
 
-      // 排除列表容器：自身匹配选择器且包含多个同选择器子元素
+      // 排除含多个同选择器的容器
       const sameTagChildren = el.querySelectorAll(selector).length;
       if (sameTagChildren >= 2) return false;
 
-      // 必须有作者信息或合理的文本长度
-      const hasAuthor = el.querySelector('[class*="author"], [class*="name"], [class*="nickname"], [class*="username"], a[href*="/user/"]');
+      // 必须有合理文本长度
       const textLen = el.textContent.trim().length;
-      if (!hasAuthor && textLen < 5) return false;
-      if (textLen > 5000) return false;
+      if (textLen < 5 || textLen > 5000) return false;
 
       return true;
     });
@@ -581,13 +594,18 @@ function injectControls(commentEl) {
  * 扫描并注入控件
  */
 let scanTimer = null;
+let retryCount = 0;
+const MAX_RETRIES = 10;
 
 function scanAndInject() {
   if (scanTimer) clearTimeout(scanTimer);
   scanTimer = setTimeout(() => {
     const commentEls = findCommentElements();
-    commentEls.forEach(el => injectControls(el));
-  }, 100);
+    if (commentEls.length > 0) {
+      retryCount = 0;
+      commentEls.forEach(el => injectControls(el));
+    }
+  }, 200);
 }
 
 /**
@@ -597,10 +615,13 @@ function scanAndInject() {
  */
 function isDetailPage() {
   const url = window.location.href;
-  // URL 特征：/explore/ 后跟具体帖子 ID（非首页的纯 /explore）
-  if (/\/explore\/[a-f0-9]{10,}/i.test(url)) return true;
+  if (/\/explore\/[a-f0-9]{8,}/i.test(url)) return true;
   if (/\/discovery\/item\//i.test(url)) return true;
   if (/\/detail\//i.test(url)) return true;
+  // 新版短链
+  if (/\/a\/[a-zA-Z0-9]{6,}/.test(url)) return true;
+  // URL 参数中有 noteId
+  if (/[?&]note_id=[a-f0-9]+/i.test(url)) return true;
   return false;
 }
 
@@ -609,7 +630,12 @@ function isDetailPage() {
  */
 async function init() {
   // 只在帖子详情页生效，首页/列表页不注入
-  if (!isDetailPage()) return;
+  if (!isDetailPage()) {
+    console.log('[评论收藏] 非详情页，跳过:', window.location.href);
+    return;
+  }
+
+  console.log('[评论收藏] 检测到详情页，开始初始化...');
 
   try {
     const catResp = await chrome.runtime.sendMessage({ action: 'getCategories' });
@@ -629,6 +655,7 @@ async function init() {
       });
     }
   } catch (err) {
+    console.warn('[评论收藏] 加载数据失败:', err.message);
     categories = ['未分类', '好物', '避雷', '搞笑'];
   }
 
@@ -636,6 +663,23 @@ async function init() {
 
   const observer = new MutationObserver(() => scanAndInject());
   observer.observe(document.body, { childList: true, subtree: true });
+
+  // 定时重试：评论区可能是异步渲染的，等待 DOM 渲染完成
+  let attempts = 0;
+  const retryInterval = setInterval(() => {
+    const found = findCommentElements();
+    if (found.length > 0) {
+      found.forEach(el => injectControls(el));
+      console.log('[评论收藏] 注入成功，找到', found.length, '条评论');
+      clearInterval(retryInterval);
+      return;
+    }
+    attempts++;
+    if (attempts > 15) {
+      clearInterval(retryInterval);
+      console.warn('[评论收藏] 15 次重试后仍未找到评论，可能需要更新选择器');
+    }
+  }, 1000);
 }
 
 if (document.readyState === 'loading') {
