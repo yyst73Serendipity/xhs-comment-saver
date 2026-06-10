@@ -598,6 +598,8 @@ let retryCount = 0;
 const MAX_RETRIES = 10;
 
 function scanAndInject() {
+  // 非详情页不注入
+  if (!isDetailPage()) return;
   if (scanTimer) clearTimeout(scanTimer);
   scanTimer = setTimeout(() => {
     const commentEls = findCommentElements();
@@ -609,34 +611,58 @@ function scanAndInject() {
 }
 
 /**
- * 判断当前页面是否为帖子详情页（而非首页/列表页）
- * 小红书的帖子详情页 URL 通常包含 /explore/ 后面接 ID，或 /discovery/item/
- * @returns {boolean}
+ * SPA URL 变化检测 + 注入启动
+ */
+let lastUrl = window.location.href;
+let injectionActive = false;
+
+function checkUrlChange() {
+  const currentUrl = window.location.href;
+  if (currentUrl === lastUrl) return;
+  lastUrl = currentUrl;
+  if (isDetailPage() && !injectionActive) {
+    console.log('[评论收藏] SPA 导航进入详情页，启动注入');
+    startInjection();
+  } else if (!isDetailPage()) {
+    injectionActive = false;
+  }
+}
+
+function startInjection() {
+  injectionActive = true;
+  scanAndInject();
+  let attempts = 0;
+  const retryInterval = setInterval(() => {
+    if (!injectionActive || !isDetailPage()) { clearInterval(retryInterval); return; }
+    const found = findCommentElements();
+    if (found.length > 0) {
+      found.forEach(el => injectControls(el));
+      console.log('[评论收藏] 注入成功，找到', found.length, '条评论');
+      clearInterval(retryInterval);
+      return;
+    }
+    if (++attempts > 15) {
+      clearInterval(retryInterval);
+      console.warn('[评论收藏] 15 次重试后仍未找到评论，可能需要更新选择器');
+    }
+  }, 1000);
+}
+
+/**
+ * 判断当前页面是否为帖子详情页
  */
 function isDetailPage() {
   const url = window.location.href;
   if (/\/explore\/[a-f0-9]{8,}/i.test(url)) return true;
   if (/\/discovery\/item\//i.test(url)) return true;
   if (/\/detail\//i.test(url)) return true;
-  // 新版短链
   if (/\/a\/[a-zA-Z0-9]{6,}/.test(url)) return true;
-  // URL 参数中有 noteId
   if (/[?&]note_id=[a-f0-9]+/i.test(url)) return true;
   return false;
 }
 
-/**
- * 初始化
- */
 async function init() {
-  // 只在帖子详情页生效，首页/列表页不注入
-  if (!isDetailPage()) {
-    console.log('[评论收藏] 非详情页，跳过:', window.location.href);
-    return;
-  }
-
-  console.log('[评论收藏] 检测到详情页，开始初始化...');
-
+  // 加载数据（始终加载，SPA 导航随时可能进入详情页）
   try {
     const catResp = await chrome.runtime.sendMessage({ action: 'getCategories' });
     if (catResp.success) categories = catResp.data;
@@ -649,7 +675,6 @@ async function init() {
         if (c.key) {
           savedCommentKeys.add(c.key);
         } else {
-          // 旧数据没有 key 字段，从现有字段重建
           savedCommentKeys.add(makeCommentKey(c.postUrl, c.author, c.text));
         }
       });
@@ -659,27 +684,18 @@ async function init() {
     categories = ['未分类', '好物', '避雷', '搞笑'];
   }
 
-  scanAndInject();
+  console.log('[评论收藏] 已加载，', isDetailPage() ? '当前是详情页，立即注入' : '等待 SPA 导航到详情页...');
 
-  const observer = new MutationObserver(() => scanAndInject());
+  if (isDetailPage()) startInjection();
+
+  // DOM 变化监测
+  const observer = new MutationObserver(() => { checkUrlChange(); scanAndInject(); });
   observer.observe(document.body, { childList: true, subtree: true });
 
-  // 定时重试：评论区可能是异步渲染的，等待 DOM 渲染完成
-  let attempts = 0;
-  const retryInterval = setInterval(() => {
-    const found = findCommentElements();
-    if (found.length > 0) {
-      found.forEach(el => injectControls(el));
-      console.log('[评论收藏] 注入成功，找到', found.length, '条评论');
-      clearInterval(retryInterval);
-      return;
-    }
-    attempts++;
-    if (attempts > 15) {
-      clearInterval(retryInterval);
-      console.warn('[评论收藏] 15 次重试后仍未找到评论，可能需要更新选择器');
-    }
-  }, 1000);
+  // SPA 路由变化监测
+  window.addEventListener('popstate', () => setTimeout(checkUrlChange, 300));
+  window.addEventListener('hashchange', () => setTimeout(checkUrlChange, 300));
+  setInterval(checkUrlChange, 1000);
 }
 
 if (document.readyState === 'loading') {
