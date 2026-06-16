@@ -142,29 +142,14 @@ function extractAuthor(commentEl) {
 
 /**
  * 从评论 DOM 元素中提取小红书的评论 ID
- * 评论 ID 是 24 位十六进制字符串，DOM 中可能存放在 data-id、id 或链接中
+ * 评论元素自身的 id 格式为 "comment-{24位hex}"，如 comment-6a2bd0f2000000002a03300b
+ * 子元素上的 data-user-id 是用户 ID（同一用户所有评论共享），不能使用
  * @param {Element} commentEl
- * @returns {string|null}
+ * @returns {string|null} 纯 hex 评论 ID，或 null
  */
 function extractCommentId(commentEl) {
-  // 1) 尝试 data 属性
-  const dataId = commentEl.getAttribute('data-id') || commentEl.getAttribute('data-comment-id');
-  if (dataId && /[a-f0-9]{15,}/i.test(dataId)) return dataId;
-
-  // 2) 仅查找元素自身和直接子元素的 ID（避免深层容器 ID 污染所有评论）
-  const candidates = [commentEl, ...commentEl.children];
-  for (const el of candidates) {
-    if (el.id && /^[a-f0-9]{20,}$/i.test(el.id)) return el.id;
-  }
-
-  // 3) 查找 href 中包含 comment id 的链接
-  const linkEl = commentEl.querySelector('a[href*="comment"]');
-  if (linkEl) {
-    const match = linkEl.href.match(/[a-f0-9]{20,}/i);
-    if (match) return match[0];
-  }
-
-  return null;
+  const m = commentEl.id && commentEl.id.match(/^comment-([a-f0-9]{20,})$/i);
+  return m ? m[1] : null;
 }
 
 /**
@@ -325,7 +310,15 @@ function findActionBar(commentEl) {
  * @param {HTMLElement} anchorEl - 定位参考元素
  */
 function createCategoryPicker(commentsData, anchorEl) {
-  if (activePicker) activePicker.remove();
+  // 移除旧 picker 及其事件监听，防止重复保存
+  if (activePicker) {
+    const oldHandler = activePicker._closeHandler;
+    if (oldHandler) document.removeEventListener('click', oldHandler);
+    activePicker.remove();
+    activePicker = null;
+  }
+
+  let saving = false; // 防并发保存
 
   const picker = document.createElement('div');
   picker.className = `${PREFIX}-picker`;
@@ -348,6 +341,9 @@ function createCategoryPicker(commentsData, anchorEl) {
     item.textContent = cat;
 
     item.addEventListener('click', async () => {
+      if (saving) return;
+      if (activePicker !== picker) return;
+      saving = true;
       try {
         // 批量保存
         const response = await chrome.runtime.sendMessage({
@@ -361,6 +357,9 @@ function createCategoryPicker(commentsData, anchorEl) {
             if (c.commentId) savedCommentIds.add(c.commentId);
             if (c.key) savedCommentKeys.add(c.key);
           });
+          if (picker._closeHandler) {
+            document.removeEventListener('click', picker._closeHandler);
+          }
           picker.remove();
           activePicker = null;
           clearSelection();
@@ -372,6 +371,7 @@ function createCategoryPicker(commentsData, anchorEl) {
       } catch (err) {
         showToast('收藏失败，请重试');
       }
+      saving = false;
     });
 
     list.appendChild(item);
@@ -422,6 +422,9 @@ function createCategoryPicker(commentsData, anchorEl) {
 
   // 保存到未分类的通用函数
   const saveToDefault = async () => {
+    if (saving) return;
+    if (activePicker !== picker) return;
+    saving = true;
     try {
       const response = await chrome.runtime.sendMessage({
         action: 'saveCommentGroup',
@@ -432,6 +435,11 @@ function createCategoryPicker(commentsData, anchorEl) {
           if (c.commentId) savedCommentIds.add(c.commentId);
           if (c.key) savedCommentKeys.add(c.key);
         });
+        if (picker._closeHandler) {
+          document.removeEventListener('click', picker._closeHandler);
+        }
+        picker.remove();
+        activePicker = null;
         clearSelection();
         refreshButtons();
         showToast(`已收入囊中 ${commentsData.length} 条 → 未分类`);
@@ -439,18 +447,22 @@ function createCategoryPicker(commentsData, anchorEl) {
     } catch (err) {
       showToast('收藏失败，请重试');
     }
+    saving = false;
   };
 
   // 点击外部 → 自动归入「未分类」
   picker.addEventListener('click', (e) => e.stopPropagation());
   const closeHandler = (e) => {
     if (!picker.contains(e.target)) {
+      if (saving) return;
+      if (activePicker !== picker) return;
       picker.remove();
       activePicker = null;
       document.removeEventListener('click', closeHandler);
       saveToDefault();
     }
   };
+  picker._closeHandler = closeHandler;
   setTimeout(() => document.addEventListener('click', closeHandler), 0);
 
   activePicker = picker;
@@ -616,14 +628,21 @@ function scanAndInject() {
 let lastUrl = window.location.href;
 let injectionActive = false;
 
-function checkUrlChange() {
+async function checkUrlChange() {
   const currentUrl = window.location.href;
   if (currentUrl === lastUrl) return;
   lastUrl = currentUrl;
-  if (isDetailPage() && !injectionActive) {
-    console.log('[评论收藏] SPA 导航进入详情页，启动注入');
-    startInjection();
-  } else if (!isDetailPage()) {
+  if (isDetailPage()) {
+    // SPA 导航时重新拉取分类，确保导入/新建的分类能及时出现
+    try {
+      const catResp = await chrome.runtime.sendMessage({ action: 'getCategories' });
+      if (catResp.success) categories = catResp.data;
+    } catch (err) { /* 保持旧分类 */ }
+    if (!injectionActive) {
+      console.log('[评论收藏] SPA 导航进入详情页，启动注入');
+      startInjection();
+    }
+  } else {
     injectionActive = false;
   }
 }

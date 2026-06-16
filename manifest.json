@@ -1,7 +1,3 @@
-/**
- * manifest.json - Chrome 扩展配置文件
- * 配置扩展的基本信息、权限、内容脚本和服务工作线程
- */
 {
   "manifest_version": 3,
   "name": "小红书评论收藏",
@@ -47,7 +43,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["tests/*"],
+      "resources": ["tests/*", "assets/templates/*"],
       "matches": ["*://*.xiaohongshu.com/*"]
     }
   ]

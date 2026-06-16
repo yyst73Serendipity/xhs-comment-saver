@@ -9,6 +9,35 @@ let categories = [];
 let currentCategory = '全部';  // 当前选中的分类，「全部」表示显示所有
 let searchKeyword = '';        // 当前搜索关键词
 
+/* 分享卡片模板列表：默认（纯色复古底）+ 14张纸张纹理图片 */
+const SHARE_TEMPLATES = [
+  { id: 'default', name: '默认', type: 'default', src: null }
+];
+// 动态添加图片模板
+for (let i = 1; i <= 22; i++) {
+  const num = String(i).padStart(2, '0');
+  SHARE_TEMPLATES.push({
+    id: `tpl-${num}`,
+    name: `模板 ${i + 1}`,
+    type: 'image',
+    src: `assets/templates/template-${num}.jpg`
+  });
+}
+
+// 预加载的模板图片
+const preloadedTemplates = {};
+
+/** 预加载所有模板图片 */
+function preloadTemplateImages() {
+  SHARE_TEMPLATES.forEach(tpl => {
+    if (tpl.type === 'image') {
+      const img = new Image();
+      img.src = chrome.runtime.getURL(tpl.src);
+      preloadedTemplates[tpl.id] = img;
+    }
+  });
+}
+
 /* DOM 元素引用 */
 const categoryList = document.getElementById('category-list');
 const commentList = document.getElementById('comment-list');
@@ -26,9 +55,27 @@ const btnClear = document.getElementById('btn-clear');
 const importFile = document.getElementById('import-file');
 
 /**
+ * 去重：按 commentId 或 key 去除重复评论，保留最早保存的那条
+ * @param {Array} list - 评论列表
+ * @returns {Array} 去重后的列表
+ */
+function dedupeComments(list) {
+  const seen = new Map(); // commentId/key → 评论
+  for (const c of list) {
+    const id = c.commentId || c.key;
+    if (!id || seen.has(id)) continue;
+    seen.set(id, c);
+  }
+  return Array.from(seen.values());
+}
+
+/**
  * 初始化：从 storage 加载数据
  */
 async function init() {
+  // 预加载分享卡片的模板图片
+  preloadTemplateImages();
+
   try {
     const [catResp, commentResp] = await Promise.all([
       chrome.runtime.sendMessage({ action: 'getCategories' }),
@@ -46,6 +93,13 @@ async function init() {
     const result = await chrome.storage.local.get(['xhs_categories', 'xhs_comments']);
     categories = result.xhs_categories || ['未分类', '好物', '避雷', '搞笑'];
     comments = result.xhs_comments || [];
+  }
+
+  // 去重并写回 storage（清理历史重复数据）
+  const deduped = dedupeComments(comments);
+  if (deduped.length !== comments.length) {
+    comments = deduped;
+    await chrome.storage.local.set({ xhs_comments: comments });
   }
 
   renderAll();
@@ -317,12 +371,15 @@ function createCommentCard(comment) {
   });
   meta.appendChild(catSelect);
 
-  const link = document.createElement('a');
-  link.className = 'comment-card-link';
-  link.textContent = '查看原帖';
-  link.href = comment.postUrl || '#';
-  link.target = '_blank';
-  meta.appendChild(link);
+  // 只有保存了原文链接时才显示
+  if (comment.postUrl) {
+    const link = document.createElement('a');
+    link.className = 'comment-card-link';
+    link.textContent = '查看原帖';
+    link.href = comment.postUrl;
+    link.target = '_blank';
+    meta.appendChild(link);
+  }
 
   const time = document.createElement('span');
   time.className = 'comment-card-time';
@@ -350,7 +407,8 @@ function createCommentCard(comment) {
   shareBtn.title = '生成分享卡片';
   shareBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    generateShareCard(comment);
+    const canvas = generateShareCard(comment);
+    showSharePreview(canvas, comment);
   });
   meta.appendChild(shareBtn);
 
@@ -753,10 +811,12 @@ function getFilteredCount() {
 }
 
 /**
- * 生成复古风格分享卡片并下载
+ * 生成复古风格分享卡片
  * @param {Object} comment - 评论数据
+ * @param {string} templateId - 模板 ID，默认 'default'
+ * @returns {HTMLCanvasElement}
  */
-function generateShareCard(comment) {
+function generateShareCard(comment, templateId = 'default') {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   const w = 600;
@@ -779,10 +839,37 @@ function generateShareCard(comment) {
   canvas.width = w;
   canvas.height = cardHeight;
 
-  // 复古纸张底色 + 纹理
-  ctx.fillStyle = '#f5f0e6';
-  ctx.fillRect(0, 0, w, cardHeight);
-  addNoiseTexture(ctx, w, cardHeight);
+  // 背景：图片模板用纹理图 + 半透明遮罩，默认模板用纯色 + 噪点
+  const template = SHARE_TEMPLATES.find(t => t.id === templateId);
+  if (template && template.type === 'image') {
+    const img = preloadedTemplates[templateId];
+    if (img && img.complete && img.naturalWidth > 0) {
+      // 按 cover 方式填充画布
+      const imgRatio = img.naturalWidth / img.naturalHeight;
+      const canvasRatio = w / cardHeight;
+      let sx, sy, sw, sh;
+      if (imgRatio > canvasRatio) {
+        sh = img.naturalHeight;
+        sw = img.naturalHeight * canvasRatio;
+        sx = (img.naturalWidth - sw) / 2;
+        sy = 0;
+      } else {
+        sw = img.naturalWidth;
+        sh = img.naturalWidth / canvasRatio;
+        sx = 0;
+        sy = (img.naturalHeight - sh) / 2;
+      }
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, cardHeight);
+    }
+    // 半透明白色遮罩保证文字可读
+    ctx.fillStyle = 'rgba(255, 252, 245, 0.55)';
+    ctx.fillRect(0, 0, w, cardHeight);
+  } else {
+    // 默认：复古纸张底色 + 纹理
+    ctx.fillStyle = '#f5f0e6';
+    ctx.fillRect(0, 0, w, cardHeight);
+    addNoiseTexture(ctx, w, cardHeight);
+  }
 
   // 外边框
   ctx.strokeStyle = '#8b7355';
@@ -849,14 +936,18 @@ function generateShareCard(comment) {
     y += 20;
   });
 
-  // 预览弹窗
-  showSharePreview(canvas);
+  return canvas;
 }
 
 /**
  * 显示分享卡片预览弹窗
+ * @param {HTMLCanvasElement} canvas - 当前卡片画布
+ * @param {Object} comment - 评论数据（用于模板切换时重新生成）
  */
-function showSharePreview(canvas) {
+function showSharePreview(canvas, comment) {
+  let currentTemplateId = 'default';
+  let currentCanvas = canvas;
+
   // 移除已有弹窗
   const existing = document.querySelector('.share-preview-overlay');
   if (existing) existing.remove();
@@ -869,11 +960,85 @@ function showSharePreview(canvas) {
 
   const dialog = document.createElement('div');
   dialog.className = 'share-preview-dialog';
-  dialog.appendChild(canvas);
-  canvas.style.maxWidth = '100%';
-  canvas.style.height = 'auto';
-  canvas.style.borderRadius = '8px';
-  canvas.style.boxShadow = '0 8px 32px rgba(0,0,0,0.2)';
+
+  // 画布容器
+  const canvasWrapper = document.createElement('div');
+  canvasWrapper.className = 'share-preview-canvas-wrapper';
+  applyCanvasStyle(currentCanvas);
+  canvasWrapper.appendChild(currentCanvas);
+  dialog.appendChild(canvasWrapper);
+
+  // 模板选择面板（画布下方，宽度与画布一致）
+  const templatePanel = document.createElement('div');
+  templatePanel.className = 'template-selector-panel';
+
+  const panelLabel = document.createElement('div');
+  panelLabel.className = 'template-selector-label';
+  panelLabel.textContent = '模板';
+  templatePanel.appendChild(panelLabel);
+
+  const grid = document.createElement('div');
+  grid.className = 'template-selector-grid';
+
+  SHARE_TEMPLATES.forEach(tpl => {
+    const item = document.createElement('div');
+    item.className = 'template-thumb-item';
+    if (tpl.id === currentTemplateId) item.classList.add('active');
+
+    const thumbBox = document.createElement('div');
+    thumbBox.className = 'template-thumb-img';
+
+    if (tpl.type === 'default') {
+      const thumbCanvas = document.createElement('canvas');
+      thumbCanvas.width = 40;
+      thumbCanvas.height = 50;
+      const tctx = thumbCanvas.getContext('2d');
+      tctx.fillStyle = '#f5f0e6';
+      tctx.fillRect(0, 0, 40, 50);
+      const imgData = tctx.getImageData(0, 0, 40, 50);
+      for (let i = 0; i < imgData.data.length; i += 4) {
+        const n = (Math.random() - 0.5) * 8;
+        imgData.data[i] += n;
+        imgData.data[i + 1] += n;
+        imgData.data[i + 2] += n;
+      }
+      tctx.putImageData(imgData, 0, 0);
+      tctx.strokeStyle = '#8b7355';
+      tctx.lineWidth = 0.5;
+      tctx.strokeRect(2, 2, 36, 46);
+      thumbBox.appendChild(thumbCanvas);
+    } else {
+      const img = document.createElement('img');
+      img.src = chrome.runtime.getURL(tpl.src);
+      img.alt = tpl.name;
+      thumbBox.appendChild(img);
+    }
+    item.appendChild(thumbBox);
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'template-thumb-name';
+    nameSpan.textContent = tpl.name;
+    item.appendChild(nameSpan);
+
+    item.addEventListener('click', () => {
+      if (currentTemplateId === tpl.id) return;
+
+      grid.querySelectorAll('.template-thumb-item').forEach(el => el.classList.remove('active'));
+      item.classList.add('active');
+      currentTemplateId = tpl.id;
+
+      const newCanvas = generateShareCard(comment, tpl.id);
+      canvasWrapper.innerHTML = '';
+      applyCanvasStyle(newCanvas);
+      canvasWrapper.appendChild(newCanvas);
+      currentCanvas = newCanvas;
+    });
+
+    grid.appendChild(item);
+  });
+
+  templatePanel.appendChild(grid);
+  dialog.appendChild(templatePanel);
 
   // 操作按钮区
   const actions = document.createElement('div');
@@ -882,7 +1047,7 @@ function showSharePreview(canvas) {
   const downloadBtn = document.createElement('button');
   downloadBtn.textContent = '下载图片';
   downloadBtn.addEventListener('click', () => {
-    canvas.toBlob(blob => {
+    currentCanvas.toBlob(blob => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -899,8 +1064,17 @@ function showSharePreview(canvas) {
   actions.appendChild(downloadBtn);
   actions.appendChild(closeBtn);
   dialog.appendChild(actions);
+
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
+}
+
+/** 给 canvas 应用预览样式 */
+function applyCanvasStyle(c) {
+  c.style.maxWidth = '100%';
+  c.style.height = 'auto';
+  c.style.borderRadius = '8px';
+  c.style.boxShadow = '0 8px 32px rgba(0,0,0,0.2)';
 }
 
 /**

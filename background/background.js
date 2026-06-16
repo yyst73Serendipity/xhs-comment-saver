@@ -50,33 +50,54 @@ async function getComments() {
 }
 
 /**
- * 保存单条评论
+ * 保存单条评论（带去重）
  * @param {Object} comment - 评论数据（不含 id 和 savedAt）
- * @returns {Promise<Object>} 保存后的完整评论
+ * @returns {Promise<Object>} 保存后的完整评论，重复时返回已有记录
  */
 async function saveComment(comment) {
+  const comments = await getComments();
+  const existing = findDuplicate(comments, comment);
+  if (existing) return existing;
   const newComment = {
     ...comment,
     id: generateId(),
     savedAt: Date.now()
   };
-  const comments = await getComments();
   comments.unshift(newComment);
   await chrome.storage.local.set({ [STORAGE_KEY_COMMENTS]: comments });
   return newComment;
 }
 
 /**
- * 批量保存评论组（多条评论一起收藏，共享同一 groupId）
+ * 在已有评论中查找重复（按 commentId 或 key）
+ * @param {Array} comments - 已有评论列表
+ * @param {Object} data - 待保存的评论数据
+ * @returns {Object|null} 重复的已有评论，或 null
+ */
+function findDuplicate(comments, data) {
+  return comments.find(c => {
+    if (data.commentId && c.commentId === data.commentId) return true;
+    if (data.key && c.key === data.key) return true;
+    return false;
+  }) || null;
+}
+
+/**
+ * 批量保存评论组（带去重，共享同一 groupId）
  * @param {Array} commentsData - 评论数据数组
  * @returns {Promise<Array>} 保存后的评论列表
  */
 async function saveCommentGroup(commentsData) {
-  const groupId = generateId();
-  const now = Date.now();
   const comments = await getComments();
 
-  const newComments = commentsData.map((c, i) => ({
+  // 过滤掉已存在的评论
+  const newData = commentsData.filter(d => !findDuplicate(comments, d));
+  if (newData.length === 0) return [];
+
+  const groupId = generateId();
+  const now = Date.now();
+
+  const newComments = newData.map((c, i) => ({
     ...c,
     id: generateId(),
     groupId: groupId,
