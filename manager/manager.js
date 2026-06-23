@@ -303,34 +303,16 @@ function escapeHtml(str) {
 /**
  * 格式化时间
  * @param {number} timestamp - 时间戳
- * @returns {string} 格式化后的时间字符串
+ * @returns {string} 如 "2026/06/10 21:21"
  */
 function formatTime(timestamp) {
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diff = now - date;
-
-  // 1分钟内
-  if (diff < 60000) return '刚刚';
-  // 1小时内
-  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
-  // 今天
-  if (date.toDateString() === now.toDateString()) {
-    return '今天 ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-  }
-  // 昨天
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (date.toDateString() === yesterday.toDateString()) {
-    return '昨天 ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-  }
-  // 更早
-  return date.toLocaleDateString('zh-CN', {
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  const d = new Date(timestamp);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${y}/${m}/${day} ${h}:${min}`;
 }
 
 /**
