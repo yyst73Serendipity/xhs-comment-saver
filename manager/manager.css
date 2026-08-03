@@ -275,6 +275,179 @@ body {
   color: var(--text-primary);
 }
 
+/* ===== 分类内联编辑 ===== */
+.category-item-edit {
+  display: none;
+  padding: 4px 12px 8px;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.category-item-edit input {
+  width: 100%;
+  border: 1px solid #e6d8c8;
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 13px;
+  outline: none;
+  background: #fff;
+  color: var(--text-primary);
+  transition: border-color 0.2s;
+  font-family: inherit;
+}
+
+.category-item-edit input::placeholder {
+  color: #b8a99a;
+}
+
+.category-item-edit input:focus {
+  border-color: var(--accent);
+}
+
+.category-item-edit .edit-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.category-item-edit .btn-confirm,
+.category-item-edit .btn-cancel {
+  font-size: 12px;
+  padding: 4px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.category-item-edit .btn-confirm {
+  background: var(--accent);
+  color: #fff;
+}
+
+.category-item-edit .btn-confirm:hover {
+  background: #d4313f;
+}
+
+.category-item-edit .btn-cancel {
+  background: #f0ede6;
+  color: var(--text-secondary);
+}
+
+.category-item-edit .btn-cancel:hover {
+  background: #e5e0d8;
+  color: var(--text-primary);
+}
+
+/* 编辑模式下隐藏名称、计数、操作按钮 */
+.category-item.editing .category-item-name,
+.category-item.editing .category-item-count,
+.category-item.editing .category-item-actions {
+  display: none;
+}
+
+.category-item.editing .category-item-edit {
+  display: flex;
+}
+
+.category-item.editing {
+  flex-wrap: wrap;
+  cursor: default;
+}
+
+/* ===== 删除确认弹窗 ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(30, 20, 10, 0.5);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: modal-fade-in 0.2s ease;
+}
+
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.modal-dialog {
+  background: #fffdf9;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 16px 48px rgba(30, 20, 10, 0.2), 0 4px 16px rgba(30, 20, 10, 0.08);
+  padding: 28px 28px 24px;
+  max-width: 380px;
+  width: 90%;
+  animation: modal-scale-in 0.22s ease;
+}
+
+@keyframes modal-scale-in {
+  from { transform: scale(0.94); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.modal-body {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  margin-bottom: 24px;
+}
+
+.modal-body .cat-name-highlight,
+.modal-body .cat-fallback-highlight {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.modal-actions button {
+  font-size: 13px;
+  padding: 8px 22px;
+  border: none;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  font-weight: 600;
+  font-family: inherit;
+  transition: all 0.18s;
+}
+
+.modal-actions .btn-modal-cancel {
+  background: #f0ede6;
+  color: var(--text-secondary);
+}
+
+.modal-actions .btn-modal-cancel:hover {
+  background: #e5e0d8;
+  color: var(--text-primary);
+}
+
+.modal-actions .btn-modal-confirm {
+  background: var(--accent);
+  color: #fff;
+}
+
+.modal-actions .btn-modal-confirm:hover {
+  background: #d4313f;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(232, 56, 79, 0.3);
+}
+
 /* ===== 右侧内容 ===== */
 .content {
   flex: 1;

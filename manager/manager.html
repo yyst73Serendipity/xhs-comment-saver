@@ -36,6 +36,48 @@
         </div>
       </aside>
 
+      <!-- 分类删除确认弹窗（默认隐藏） -->
+      <div class="modal-overlay hidden" id="delete-modal">
+        <div class="modal-dialog">
+          <div class="modal-title">分类删除提醒</div>
+          <div class="modal-body" id="delete-modal-body">
+            确定删除分类「<span class="cat-name-highlight"></span>」吗？该分类下的评论将移至「<span class="cat-fallback-highlight"></span>」。
+          </div>
+          <div class="modal-actions">
+            <button class="btn-modal-cancel" id="btn-modal-cancel">取消</button>
+            <button class="btn-modal-confirm" id="btn-modal-confirm">确定</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 评论删除确认弹窗（默认隐藏） -->
+      <div class="modal-overlay hidden" id="comment-delete-modal">
+        <div class="modal-dialog">
+          <div class="modal-title">评论删除提醒</div>
+          <div class="modal-body">
+            确定删除该条评论吗？删除后无法恢复哦。
+          </div>
+          <div class="modal-actions">
+            <button class="btn-modal-cancel" id="btn-comment-modal-cancel">取消</button>
+            <button class="btn-modal-confirm" id="btn-comment-modal-confirm">确定</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 清空数据确认弹窗（默认隐藏） -->
+      <div class="modal-overlay hidden" id="clear-modal">
+        <div class="modal-dialog">
+          <div class="modal-title">数据清空提醒</div>
+          <div class="modal-body">
+            确定清空所有收藏数据和分类吗？此操作不可恢复哦，建议先导出备份。
+          </div>
+          <div class="modal-actions">
+            <button class="btn-modal-cancel" id="btn-clear-modal-cancel">取消</button>
+            <button class="btn-modal-confirm" id="btn-clear-modal-confirm">确定</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 右侧评论列表 -->
       <section class="content">
         <!-- 搜索和操作栏 -->

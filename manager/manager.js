@@ -8,6 +8,8 @@ let comments = [];
 let categories = [];
 let currentCategory = '全部';  // 当前选中的分类，「全部」表示显示所有
 let searchKeyword = '';        // 当前搜索关键词
+let editingCategory = null;   // 当前正在内联编辑的分类名
+let pendingDeleteCommentId = null; // 待删除的评论 ID
 
 /* 分享卡片模板列表：默认（纯色复古底）+ 14张纸张纹理图片 */
 const SHARE_TEMPLATES = [
@@ -53,6 +55,16 @@ const btnExport = document.getElementById('btn-export');
 const btnImport = document.getElementById('btn-import');
 const btnClear = document.getElementById('btn-clear');
 const importFile = document.getElementById('import-file');
+const deleteModal = document.getElementById('delete-modal');
+const deleteModalBody = document.getElementById('delete-modal-body');
+const btnModalCancel = document.getElementById('btn-modal-cancel');
+const btnModalConfirm = document.getElementById('btn-modal-confirm');
+const commentDeleteModal = document.getElementById('comment-delete-modal');
+const btnCommentModalCancel = document.getElementById('btn-comment-modal-cancel');
+const btnCommentModalConfirm = document.getElementById('btn-comment-modal-confirm');
+const clearModal = document.getElementById('clear-modal');
+const btnClearModalCancel = document.getElementById('btn-clear-modal-cancel');
+const btnClearModalConfirm = document.getElementById('btn-clear-modal-confirm');
 
 /**
  * 去重：按 commentId 或 key 去除重复评论，保留最早保存的那条
@@ -137,7 +149,10 @@ function renderCategories() {
     if (currentCategory === cat) {
       item.classList.add('active');
     }
-    item.addEventListener('click', () => selectCategory(cat));
+    item.addEventListener('click', () => {
+      if (editingCategory) return;
+      selectCategory(cat);
+    });
     categoryList.appendChild(item);
   });
 }
@@ -175,7 +190,7 @@ function createCategoryItem(name, count, showActions) {
     renameBtn.title = '重命名';
     renameBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      startRenameCategory(name);
+      startRenameCategory(name, li);
     });
 
     // 删除按钮
@@ -192,6 +207,54 @@ function createCategoryItem(name, count, showActions) {
     actions.appendChild(deleteBtn);
     li.appendChild(actions);
   }
+
+  // 内联编辑区域（默认隐藏）
+  const editWrap = document.createElement('div');
+  editWrap.className = 'category-item-edit';
+  const editInput = document.createElement('input');
+  editInput.type = 'text';
+  editInput.maxLength = 20;
+  const editActions = document.createElement('div');
+  editActions.className = 'edit-actions';
+  const btnConfirm = document.createElement('button');
+  btnConfirm.className = 'btn-confirm';
+  btnConfirm.textContent = '确定';
+  const btnCancel = document.createElement('button');
+  btnCancel.className = 'btn-cancel';
+  btnCancel.textContent = '取消';
+  editActions.appendChild(btnConfirm);
+  editActions.appendChild(btnCancel);
+  editWrap.appendChild(editInput);
+  editWrap.appendChild(editActions);
+
+  btnConfirm.addEventListener('click', (e) => {
+    e.stopPropagation();
+    confirmEditCategory(name, editInput.value.trim(), li);
+  });
+  btnCancel.addEventListener('click', (e) => {
+    e.stopPropagation();
+    cancelEditCategory(li);
+  });
+  editInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.stopPropagation();
+      confirmEditCategory(name, editInput.value.trim(), li);
+    } else if (e.key === 'Escape') {
+      e.stopPropagation();
+      cancelEditCategory(li);
+    }
+  });
+  editInput.addEventListener('blur', () => {
+    setTimeout(() => {
+      if (li.classList.contains('editing') &&
+          document.activeElement !== btnConfirm &&
+          document.activeElement !== btnCancel) {
+        cancelEditCategory(li);
+      }
+    }, 150);
+  });
+
+  li.appendChild(editWrap);
 
   return li;
 }
@@ -639,10 +702,23 @@ async function changeCommentCategory(id, newCategory) {
 }
 
 /**
- * 删除评论
+ * 删除评论 —— 弹出确认弹窗
  * @param {string} id - 评论 ID
  */
-async function deleteCommentHandler(id) {
+function deleteCommentHandler(id) {
+  pendingDeleteCommentId = id;
+  commentDeleteModal.classList.remove('hidden');
+  btnCommentModalConfirm.focus();
+}
+
+/**
+ * 确认删除评论
+ */
+async function confirmDeleteComment() {
+  const id = pendingDeleteCommentId;
+  if (!id) return;
+  closeCommentDeleteModal();
+
   try {
     const response = await chrome.runtime.sendMessage({
       action: 'deleteComment',
@@ -653,7 +729,6 @@ async function deleteCommentHandler(id) {
       renderAll();
     }
   } catch (err) {
-    // 直接操作 storage
     comments = comments.filter(c => c.id !== id);
     await chrome.storage.local.set({ xhs_comments: comments });
     renderAll();
@@ -661,10 +736,18 @@ async function deleteCommentHandler(id) {
 }
 
 /**
- * 删除分类
+ * 关闭评论删除弹窗
+ */
+function closeCommentDeleteModal() {
+  commentDeleteModal.classList.add('hidden');
+  pendingDeleteCommentId = null;
+}
+
+/**
+ * 删除分类 —— 弹出确认弹窗
  * @param {string} name - 分类名
  */
-async function deleteCategoryHandler(name) {
+function deleteCategoryHandler(name) {
   if (name === '未分类') {
     alert('「未分类」不可删除');
     return;
@@ -675,10 +758,38 @@ async function deleteCategoryHandler(name) {
     return;
   }
 
-  const fallbackCat = categories.find(c => c !== name) || '好物';
-  if (!confirm(`确定删除分类「${name}」吗？该分类下的评论将移至「${fallbackCat}」。`)) {
-    return;
-  }
+  showDeleteModal(name);
+}
+
+/** 待删除的分类名 */
+let pendingDeleteCategory = null;
+
+/**
+ * 显示删除确认弹窗
+ * @param {string} name - 分类名
+ */
+function showDeleteModal(name) {
+  pendingDeleteCategory = name;
+  const fallbackCat = categories.find(c => c !== name) || '未分类';
+  deleteModalBody.querySelector('.cat-name-highlight').textContent = name;
+  deleteModalBody.querySelector('.cat-fallback-highlight').textContent = fallbackCat;
+  deleteModal.classList.remove('hidden');
+  btnModalConfirm.focus();
+}
+
+/** 关闭删除确认弹窗 */
+function closeDeleteModal() {
+  deleteModal.classList.add('hidden');
+  pendingDeleteCategory = null;
+}
+
+/** 确认删除分类 */
+async function confirmDeleteCategory() {
+  const name = pendingDeleteCategory;
+  if (!name) return;
+  closeDeleteModal();
+
+  const fallbackCat = categories.find(c => c !== name) || '未分类';
 
   try {
     const response = await chrome.runtime.sendMessage({
@@ -687,7 +798,6 @@ async function deleteCategoryHandler(name) {
     });
     if (response.success) {
       categories = response.data;
-      // 重新加载评论
       const commentResp = await chrome.runtime.sendMessage({ action: 'getComments' });
       if (commentResp.success) {
         comments = commentResp.data;
@@ -713,18 +823,56 @@ async function deleteCategoryHandler(name) {
 }
 
 /**
- * 开始重命名分类
+ * 开始内联编辑分类名
  * @param {string} oldName - 旧分类名
+ * @param {HTMLElement} li - 分类项 DOM 元素
  */
-function startRenameCategory(oldName) {
+function startRenameCategory(oldName, li) {
   if (oldName === '未分类') {
     alert('「未分类」不可重命名');
     return;
   }
-  const newName = prompt('请输入新分类名：', oldName);
-  if (!newName || newName.trim() === '' || newName.trim() === oldName) return;
+  // 如果已有其他分类在编辑，先取消
+  if (editingCategory) {
+    const prev = document.querySelector('.category-item.editing');
+    if (prev) cancelEditCategory(prev);
+  }
+  editingCategory = oldName;
+  li.classList.add('editing');
+  const input = li.querySelector('.category-item-edit input');
+  input.value = oldName;
+  input.focus();
+  input.select();
+}
 
-  renameCategoryHandler(oldName, newName.trim());
+/**
+ * 确认编辑分类名
+ * @param {string} oldName - 旧分类名
+ * @param {string} newName - 新分类名
+ * @param {HTMLElement} li - 分类项 DOM 元素
+ */
+function confirmEditCategory(oldName, newName, li) {
+  if (!newName || newName === oldName) {
+    cancelEditCategory(li);
+    return;
+  }
+  // 校验通过后走实际重命名逻辑
+  renameCategoryHandler(oldName, newName).then(() => {
+    editingCategory = null;
+  }).catch(() => {
+    // 重命名失败时保持编辑状态让用户修正
+    const input = li.querySelector('.category-item-edit input');
+    if (input) input.focus();
+  });
+}
+
+/**
+ * 取消内联编辑
+ * @param {HTMLElement} li - 分类项 DOM 元素
+ */
+function cancelEditCategory(li) {
+  li.classList.remove('editing');
+  editingCategory = null;
 }
 
 /**
@@ -1234,21 +1382,59 @@ btnCancelCat.addEventListener('click', () => {
   inputCatName.value = '';
 });
 
-// 搜索输入
-searchInput.addEventListener('input', () => {
-  searchKeyword = searchInput.value.trim();
-  renderComments();
-  updateEmptyState();
+// 删除确认弹窗 — 确定
+btnModalConfirm.addEventListener('click', confirmDeleteCategory);
+
+// 删除确认弹窗 — 取消
+btnModalCancel.addEventListener('click', closeDeleteModal);
+
+// 删除确认弹窗 — 点击遮罩关闭
+deleteModal.addEventListener('click', (e) => {
+  if (e.target === deleteModal) closeDeleteModal();
 });
 
-// 清空数据按钮
-btnClear.addEventListener('click', async () => {
-  if (!confirm('确定清空所有收藏数据和分类吗？此操作不可恢复。\n\n建议先导出备份。')) return;
+// 评论删除弹窗 — 确定
+btnCommentModalConfirm.addEventListener('click', confirmDeleteComment);
+
+// 评论删除弹窗 — 取消
+btnCommentModalCancel.addEventListener('click', closeCommentDeleteModal);
+
+// 评论删除弹窗 — 点击遮罩关闭
+commentDeleteModal.addEventListener('click', (e) => {
+  if (e.target === commentDeleteModal) closeCommentDeleteModal();
+});
+
+// 清空数据按钮 → 弹出确认弹窗
+btnClear.addEventListener('click', () => {
+  clearModal.classList.remove('hidden');
+  btnClearModalConfirm.focus();
+});
+
+// 确认清空数据
+async function confirmClearData() {
+  closeClearModal();
   await chrome.storage.local.remove(['xhs_categories', 'xhs_comments']);
-  // 恢复默认分类
   await chrome.storage.local.set({ xhs_categories: ['未分类', '好物', '避雷', '搞笑'] });
   location.reload();
+}
+
+// 关闭清空弹窗
+function closeClearModal() {
+  clearModal.classList.add('hidden');
+}
+
+// 清空弹窗 — 确定
+btnClearModalConfirm.addEventListener('click', confirmClearData);
+
+// 清空弹窗 — 取消
+btnClearModalCancel.addEventListener('click', closeClearModal);
+
+// 清空弹窗 — 点击遮罩关闭
+clearModal.addEventListener('click', (e) => {
+  if (e.target === clearModal) closeClearModal();
 });
+
+// 搜索输入
 
 // 导出按钮
 btnExport.addEventListener('click', exportData);
@@ -1262,6 +1448,28 @@ importFile.addEventListener('change', () => {
 
 // 全局点击：关闭所有分类下拉面板
 document.addEventListener('click', closeAllDropdowns);
+
+// 全局 Esc：按优先级关闭弹窗：清空 > 评论删除 > 分类删除 > 取消内联编辑
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (!clearModal.classList.contains('hidden')) {
+      closeClearModal();
+      return;
+    }
+    if (!commentDeleteModal.classList.contains('hidden')) {
+      closeCommentDeleteModal();
+      return;
+    }
+    if (!deleteModal.classList.contains('hidden')) {
+      closeDeleteModal();
+      return;
+    }
+    if (editingCategory) {
+      const li = document.querySelector('.category-item.editing');
+      if (li) cancelEditCategory(li);
+    }
+  }
+});
 
 /* 页面加载 */
 document.addEventListener('DOMContentLoaded', init);
