@@ -10,7 +10,7 @@
   <title>小红书评论收藏</title>
   <link rel="stylesheet" href="manager.css">
 </head>
-<body>
+<body class="app-body">
   <div class="app">
     <!-- 顶部栏 -->
     <header class="header">
@@ -40,7 +40,10 @@
       <section class="content">
         <!-- 搜索和操作栏 -->
         <div class="toolbar">
-          <input type="text" class="search-input" id="search-input" placeholder="搜索收藏的评论...">
+          <div class="search-wrap">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="search-input" id="search-input" placeholder="搜索收藏的评论...">
+          </div>
           <button class="btn-export" id="btn-export" title="导出为 JSON 文件">导出</button>
           <button class="btn-import" id="btn-import" title="从 JSON 文件导入">导入</button>
           <button class="btn-clear" id="btn-clear" title="清空所有收藏数据">清空</button>

@@ -316,6 +316,63 @@ function formatTime(timestamp) {
 }
 
 /**
+ * 创建分类下拉组件（马卡龙色块风格）
+ * @param {Object} comment - 评论数据
+ * @returns {HTMLElement}
+ */
+function createCatDropdown(comment) {
+  const wrap = document.createElement('span');
+  wrap.className = 'cat-dropdown-wrap';
+
+  const trigger = document.createElement('button');
+  trigger.className = 'cat-dropdown-trigger';
+  trigger.type = 'button';
+  trigger.innerHTML = `${escapeHtml(comment.category)} <span class="cat-dropdown-arrow"></span>`;
+
+  const panel = document.createElement('div');
+  panel.className = 'cat-dropdown-panel';
+
+  categories.forEach((cat, i) => {
+    const opt = document.createElement('button');
+    opt.className = 'cat-dropdown-option';
+    opt.classList.add('cat-macaron-' + (i % 12));
+    opt.type = 'button';
+    if (cat === comment.category) opt.classList.add('selected');
+    opt.textContent = cat;
+    opt.addEventListener('click', (e) => {
+      e.stopPropagation();
+      changeCommentCategory(comment.id, cat);
+      trigger.innerHTML = `${escapeHtml(cat)} <span class="cat-dropdown-arrow"></span>`;
+      panel.querySelectorAll('.cat-dropdown-option').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+      panel.classList.remove('open');
+      trigger.classList.remove('open');
+    });
+    panel.appendChild(opt);
+  });
+
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const wasOpen = panel.classList.contains('open');
+    closeAllDropdowns();
+    if (!wasOpen) {
+      panel.classList.add('open');
+      trigger.classList.add('open');
+    }
+  });
+
+  wrap.appendChild(trigger);
+  wrap.appendChild(panel);
+  return wrap;
+}
+
+/** 关闭所有打开的分类下拉面板 */
+function closeAllDropdowns() {
+  document.querySelectorAll('.cat-dropdown-panel.open').forEach(p => p.classList.remove('open'));
+  document.querySelectorAll('.cat-dropdown-trigger.open').forEach(t => t.classList.remove('open'));
+}
+
+/**
  * 创建评论卡片 DOM 元素
  * @param {Object} comment - 评论数据
  * @returns {HTMLElement}
@@ -334,24 +391,17 @@ function createCommentCard(comment) {
   const meta = document.createElement('div');
   meta.className = 'comment-card-meta';
 
+  // 左侧：作者 + 分类 + 链接
+  const metaLeft = document.createElement('div');
+  metaLeft.className = 'comment-card-meta-left';
+
   const author = document.createElement('span');
   author.className = 'comment-card-author';
   author.textContent = comment.author || '';
-  meta.appendChild(author);
+  metaLeft.appendChild(author);
 
-  const catSelect = document.createElement('select');
-  catSelect.className = 'comment-card-cat-select';
-  categories.forEach(cat => {
-    const opt = document.createElement('option');
-    opt.value = cat;
-    opt.textContent = cat;
-    if (cat === comment.category) opt.selected = true;
-    catSelect.appendChild(opt);
-  });
-  catSelect.addEventListener('change', () => {
-    changeCommentCategory(comment.id, catSelect.value);
-  });
-  meta.appendChild(catSelect);
+  const catDropdown = createCatDropdown(comment);
+  metaLeft.appendChild(catDropdown);
 
   // 只有保存了原文链接时才显示
   if (comment.postUrl) {
@@ -360,13 +410,19 @@ function createCommentCard(comment) {
     link.textContent = '查看原帖';
     link.href = comment.postUrl;
     link.target = '_blank';
-    meta.appendChild(link);
+    metaLeft.appendChild(link);
   }
+
+  meta.appendChild(metaLeft);
+
+  // 右侧：时间 + 操作按钮
+  const metaRight = document.createElement('div');
+  metaRight.className = 'comment-card-meta-right';
 
   const time = document.createElement('span');
   time.className = 'comment-card-time';
   time.textContent = formatTime(comment.savedAt);
-  meta.appendChild(time);
+  metaRight.appendChild(time);
 
   // 复制按钮（仅复制评论文本）
   const copyBtn = document.createElement('button');
@@ -380,7 +436,7 @@ function createCommentCard(comment) {
       setTimeout(() => { copyBtn.textContent = '复制'; }, 1500);
     });
   });
-  meta.appendChild(copyBtn);
+  metaRight.appendChild(copyBtn);
 
   // 分享按钮（生成复古卡片图片）
   const shareBtn = document.createElement('button');
@@ -392,14 +448,16 @@ function createCommentCard(comment) {
     const canvas = generateShareCard(comment);
     showSharePreview(canvas, comment);
   });
-  meta.appendChild(shareBtn);
+  metaRight.appendChild(shareBtn);
 
   // 删除按钮
   const deleteBtn = document.createElement('button');
   deleteBtn.className = 'comment-card-delete';
   deleteBtn.textContent = '删除';
   deleteBtn.addEventListener('click', () => deleteCommentHandler(comment.id));
-  meta.appendChild(deleteBtn);
+  metaRight.appendChild(deleteBtn);
+
+  meta.appendChild(metaRight);
 
   card.appendChild(meta);
 
@@ -455,13 +513,20 @@ function createCommentCard(comment) {
     }
     noteEdit.style.display = 'none';
     noteView.style.display = newNote ? 'block' : 'none';
+    if (newNote) {
+      noteContainer.classList.add('has-note');
+    } else {
+      noteContainer.classList.remove('has-note');
+    }
   });
 
   // 初始状态：有笔记显示查看态，无笔记默认显示编辑态（hover 卡片可见）
   if (comment.note) {
+    noteContainer.classList.add('has-note');
     noteView.style.display = 'block';
     noteEdit.style.display = 'none';
   } else {
+    noteContainer.classList.remove('has-note');
     noteView.style.display = 'none';
     noteEdit.style.display = 'block';
   }
@@ -526,19 +591,8 @@ function createCommentGroupCard(group) {
     const ctxActions = document.createElement('div');
     ctxActions.className = 'comment-context-actions';
 
-    const ctxCatSelect = document.createElement('select');
-    ctxCatSelect.className = 'comment-card-cat-select';
-    categories.forEach(cat => {
-      const opt = document.createElement('option');
-      opt.value = cat;
-      opt.textContent = cat;
-      if (cat === comment.category) opt.selected = true;
-      ctxCatSelect.appendChild(opt);
-    });
-    ctxCatSelect.addEventListener('change', () => {
-      changeCommentCategory(comment.id, ctxCatSelect.value);
-    });
-    ctxActions.appendChild(ctxCatSelect);
+    const ctxCatDropdown = createCatDropdown(comment);
+    ctxActions.appendChild(ctxCatDropdown);
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'comment-card-delete';
@@ -1205,6 +1259,9 @@ importFile.addEventListener('change', () => {
   if (importFile.files[0]) importData(importFile.files[0]);
   importFile.value = '';
 });
+
+// 全局点击：关闭所有分类下拉面板
+document.addEventListener('click', closeAllDropdowns);
 
 /* 页面加载 */
 document.addEventListener('DOMContentLoaded', init);

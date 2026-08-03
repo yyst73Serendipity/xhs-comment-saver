@@ -133,10 +133,30 @@ function extractCommentText(el) {
  * @returns {string}
  */
 function extractAuthor(commentEl) {
-  const authorEl = commentEl.querySelector('[class*="author"], [class*="name"], [class*="nickname"], [class*="username"], a[href*="user"]');
-  if (authorEl) return authorEl.textContent.trim();
-  const firstLink = commentEl.querySelector('a');
-  if (firstLink) return firstLink.textContent.trim();
+  const authorSelectors = [
+    '.name .username',
+    'a.name',
+    '.username',
+    '[class*="username"]',
+    'a[href*="/user/profile/"]',
+    '[class*="author"]',
+    '[class*="name"]',
+    '[class*="nickname"]',
+    'a[href*="user"]',
+  ];
+
+  // 先在 commentEl 内找，再逐级向上到父级容器找
+  let el = commentEl;
+  for (let depth = 0; depth < 3 && el; depth++) {
+    for (const sel of authorSelectors) {
+      const authorEl = el.querySelector(sel);
+      if (authorEl && authorEl.textContent.trim()) {
+        return authorEl.textContent.trim();
+      }
+    }
+    el = el.parentElement;
+  }
+
   return '';
 }
 

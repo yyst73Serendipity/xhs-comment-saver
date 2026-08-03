@@ -20,3 +20,6 @@ node_modules/
 # 录屏/大文件
 *.mov
 *.mp4
+
+# 草稿
+uidraft/
