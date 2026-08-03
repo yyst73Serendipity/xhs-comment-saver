@@ -77,9 +77,10 @@ function findCommentElements() {
       const sameTagChildren = el.querySelectorAll(selector).length;
       if (sameTagChildren >= 2) return false;
 
-      // 必须有合理文本长度
+      // 必须有合理文本长度（语音评论允许短文本）
       const textLen = el.textContent.trim().length;
-      if (textLen < 5 || textLen > 5000) return false;
+      const hasAudio = el.querySelector('audio, [class*="voice"], [class*="audio"]');
+      if ((textLen < 5 && !hasAudio) || textLen > 5000) return false;
 
       return true;
     });
@@ -119,7 +120,7 @@ function extractCommentText(el) {
     '[class*="author"]', '[class*="name"]', '[class*="nickname"]',
     '[class*="username"]', '[class*="user"]',
     '[class*="ip"]', '[class*="location"]', '[class*="time"]', '[class*="date"]',
-    '[class*="avatar"]', 'img', 'svg', 'button',
+    '[class*="avatar"]', 'img', 'svg', 'button', 'audio',
   ];
   removeSelectors.forEach(sel => {
     clone.querySelectorAll(sel).forEach(child => child.remove());
@@ -164,6 +165,20 @@ function extractCommentImages(commentEl) {
     }
   }
   return images;
+}
+
+/**
+ * 从评论元素中提取语音 URL
+ * 查找 <audio> 标签，提取 src 属性
+ * @param {Element} commentEl - 评论 DOM 元素
+ * @returns {Object|null} { url } 或 null
+ */
+function extractCommentAudio(commentEl) {
+  const audio = commentEl.querySelector('audio');
+  if (!audio) return null;
+  const src = audio.src || audio.getAttribute('data-src') || '';
+  if (!src || !/^https?:\/\//i.test(src)) return null;
+  return { url: src };
 }
 
 /**
@@ -270,7 +285,8 @@ function extractCommentData(commentEl) {
     postUrl: postUrl,
     postTitle: extractPostTitle(),
     key: makeCommentKey(postUrl, author, text),
-    images: extractCommentImages(commentEl)
+    images: extractCommentImages(commentEl),
+    audio: extractCommentAudio(commentEl)
   };
 }
 

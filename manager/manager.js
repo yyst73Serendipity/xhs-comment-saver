@@ -65,6 +65,10 @@ const btnCommentModalConfirm = document.getElementById('btn-comment-modal-confir
 const clearModal = document.getElementById('clear-modal');
 const btnClearModalCancel = document.getElementById('btn-clear-modal-cancel');
 const btnClearModalConfirm = document.getElementById('btn-clear-modal-confirm');
+const resultModal = document.getElementById('result-modal');
+const resultModalTitle = document.getElementById('result-modal-title');
+const resultModalBody = document.getElementById('result-modal-body');
+const btnResultModalOk = document.getElementById('btn-result-modal-ok');
 
 /**
  * 去重：按 commentId 或 key 去除重复评论，保留最早保存的那条
@@ -462,6 +466,26 @@ function createCommentCard(comment) {
       imagesRow.appendChild(thumb);
     });
     card.appendChild(imagesRow);
+  }
+
+  // 语音播放器
+  if (comment.audio && comment.audio.url) {
+    const audioWrapper = document.createElement('div');
+    audioWrapper.className = 'comment-card-audio';
+    const audioEl = document.createElement('audio');
+    audioEl.controls = true;
+    audioEl.src = comment.audio.url;
+    audioEl.preload = 'metadata';
+    audioWrapper.appendChild(audioEl);
+    if (comment.postUrl) {
+      const fallback = document.createElement('a');
+      fallback.className = 'comment-card-link';
+      fallback.textContent = '去原帖收听';
+      fallback.href = comment.postUrl;
+      fallback.target = '_blank';
+      audioWrapper.appendChild(fallback);
+    }
+    card.appendChild(audioWrapper);
   }
 
   // 元信息栏
@@ -1070,9 +1094,12 @@ async function generateShareCard(comment, templateId = 'default') {
   });
   if (imgAreaHeight > 0) imgAreaHeight += 15; // 底部留白
 
+  const hasAudio = comment.audio && comment.audio.url;
+
   let cardHeight = padding + 60 + textLines.length * 28
     + (noteLines.length > 0 ? 30 + noteLines.length * 28 : 0)
     + (imgAreaHeight > 0 ? 10 + imgAreaHeight : 0)
+    + (hasAudio ? 40 : 0)
     + 30 + sourceLines.length * 20 + urlLines.length * 20 + 50;
 
   canvas.width = w;
@@ -1144,6 +1171,15 @@ async function generateShareCard(comment, templateId = 'default') {
       ctx.fillText(line, padding, y);
       y += 28;
     });
+  }
+
+  // 语音标注
+  if (hasAudio) {
+    y += 15;
+    ctx.fillStyle = '#8b7355';
+    ctx.font = 'italic 14px Georgia, "Songti SC", "Noto Serif SC", serif';
+    ctx.fillText('🎤 语音评论', padding, y);
+    y += 25;
   }
 
   // 评论图片
@@ -1364,17 +1400,22 @@ function addNoiseTexture(ctx, w, h) {
  */
 async function exportData() {
   const result = await chrome.storage.local.get(['xhs_categories', 'xhs_comments']);
+  const comments = result.xhs_comments || [];
+  if (comments.length === 0) {
+    showResultModal('导出为文件', '暂无评论数据可导出');
+    return;
+  }
   const data = {
     version: 1,
     exportedAt: new Date().toISOString(),
     categories: result.xhs_categories || [],
-    comments: result.xhs_comments || []
+    comments
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `xhs-comments-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `xhs-comments-${new Date().toISOString().slice(0, 16).replace(':', '-')}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -1389,11 +1430,11 @@ async function importData(file) {
 
     // 校验数据结构
     if (!data.comments || !Array.isArray(data.comments)) {
-      alert('文件格式无效：缺少评论数据');
+      showResultModal('文件导入', '导入失败：文件格式不正确，缺少评论数据');
       return;
     }
     if (!data.categories || !Array.isArray(data.categories)) {
-      alert('文件格式无效：缺少分类数据');
+      showResultModal('文件导入', '导入失败：文件格式不正确，缺少分类数据');
       return;
     }
 
@@ -1404,8 +1445,12 @@ async function importData(file) {
 
     // 合并分类（去重）
     const mergedCategories = [...currentCategories];
+    let newCatCount = 0;
     data.categories.forEach(cat => {
-      if (!mergedCategories.includes(cat)) mergedCategories.push(cat);
+      if (!mergedCategories.includes(cat)) {
+        mergedCategories.push(cat);
+        newCatCount++;
+      }
     });
 
     // 合并评论（按 id 去重）
@@ -1418,10 +1463,9 @@ async function importData(file) {
       xhs_comments: mergedComments
     });
 
-    alert(`导入完成！新增 ${data.categories.length - currentCategories.filter(c => data.categories.includes(c)).length} 个分类、${newComments.length} 条评论`);
-    location.reload();
+    showResultModal('文件导入', `导入成功！新增 ${newCatCount} 个分类、${newComments.length} 条评论！`, () => location.reload());
   } catch (err) {
-    alert('导入失败：' + err.message);
+    showResultModal('文件导入', `导入失败：文件内容无法解析（${err.message}）`);
   }
 }
 
@@ -1499,6 +1543,31 @@ clearModal.addEventListener('click', (e) => {
   if (e.target === clearModal) closeClearModal();
 });
 
+// 显示导入/导出结果弹窗
+function showResultModal(title, body, onOk) {
+  resultModalTitle.textContent = title;
+  resultModalBody.textContent = body;
+  resultModal.classList.remove('hidden');
+  btnResultModalOk.focus();
+  btnResultModalOk._onOk = onOk || null;
+}
+
+// 关闭结果弹窗
+function closeResultModal() {
+  const onOk = btnResultModalOk._onOk;
+  resultModal.classList.add('hidden');
+  btnResultModalOk._onOk = null;
+  if (onOk) onOk();
+}
+
+// 结果弹窗 — 确定
+btnResultModalOk.addEventListener('click', closeResultModal);
+
+// 结果弹窗 — 点击遮罩关闭
+resultModal.addEventListener('click', (e) => {
+  if (e.target === resultModal) closeResultModal();
+});
+
 // 搜索输入
 
 // 导出按钮
@@ -1527,6 +1596,10 @@ document.addEventListener('keydown', (e) => {
     }
     if (!deleteModal.classList.contains('hidden')) {
       closeDeleteModal();
+      return;
+    }
+    if (!resultModal.classList.contains('hidden')) {
+      closeResultModal();
       return;
     }
     if (editingCategory) {

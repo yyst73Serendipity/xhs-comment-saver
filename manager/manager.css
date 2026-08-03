@@ -596,6 +596,19 @@ body {
   box-shadow: 0 2px 8px rgba(0,0,0,0.12);
 }
 
+/* 语音播放器 */
+.comment-card-audio {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.comment-card-audio audio {
+  height: 36px;
+  max-width: 260px;
+}
+
 /* 搜索高亮 */
 .search-highlight {
   background: #fde68a;
