@@ -450,6 +450,20 @@ function createCommentCard(comment) {
   textEl.innerHTML = highlightText(comment.text, searchKeyword);
   card.appendChild(textEl);
 
+  // 评论图片缩略图
+  if (comment.images && comment.images.length > 0) {
+    const imagesRow = document.createElement('div');
+    imagesRow.className = 'comment-card-images';
+    comment.images.forEach(url => {
+      const thumb = document.createElement('img');
+      thumb.src = url;
+      thumb.loading = 'lazy';
+      thumb.addEventListener('click', () => window.open(url, '_blank'));
+      imagesRow.appendChild(thumb);
+    });
+    card.appendChild(imagesRow);
+  }
+
   // 元信息栏
   const meta = document.createElement('div');
   meta.className = 'comment-card-meta';
@@ -506,9 +520,9 @@ function createCommentCard(comment) {
   shareBtn.className = 'comment-card-action-btn';
   shareBtn.textContent = '分享';
   shareBtn.title = '生成分享卡片';
-  shareBtn.addEventListener('click', (e) => {
+  shareBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
-    const canvas = generateShareCard(comment);
+    const canvas = await generateShareCard(comment);
     showSharePreview(canvas, comment);
   });
   metaRight.appendChild(shareBtn);
@@ -1003,7 +1017,7 @@ function getFilteredCount() {
  * @param {string} templateId - 模板 ID，默认 'default'
  * @returns {HTMLCanvasElement}
  */
-function generateShareCard(comment, templateId = 'default') {
+async function generateShareCard(comment, templateId = 'default') {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   const w = 600;
@@ -1019,8 +1033,46 @@ function generateShareCard(comment, templateId = 'default') {
   const sourceLines = wrapText(ctx, sourceText, w - padding * 2);
   const urlLines = wrapText(ctx, comment.postUrl || '', w - padding * 2);
 
-  const cardHeight = padding + 60 + textLines.length * 28
+  // 预加载评论图片（最多 2 张）
+  const images = comment.images && comment.images.length > 0 ? comment.images.slice(0, 2) : [];
+  let loadedImages = [];
+  if (images.length > 0) {
+    loadedImages = await Promise.all(images.map(url => {
+      return new Promise(resolve => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = url;
+      });
+    }));
+    loadedImages = loadedImages.filter(img => img !== null);
+  }
+
+  // 图片区域高度（每张图最大高度 180px，宽度等比缩放至 w - padding*2）
+  const imgMaxWidth = w - padding * 2;
+  const imgMaxHeight = 180;
+  let imgAreaHeight = 0;
+  const imgDrawList = [];
+  loadedImages.forEach(img => {
+    let iw = img.naturalWidth;
+    let ih = img.naturalHeight;
+    if (iw > imgMaxWidth) {
+      ih = ih * (imgMaxWidth / iw);
+      iw = imgMaxWidth;
+    }
+    if (ih > imgMaxHeight) {
+      iw = iw * (imgMaxHeight / ih);
+      ih = imgMaxHeight;
+    }
+    imgDrawList.push({ img, iw, ih });
+    imgAreaHeight += ih + 10; // 10px 间距
+  });
+  if (imgAreaHeight > 0) imgAreaHeight += 15; // 底部留白
+
+  let cardHeight = padding + 60 + textLines.length * 28
     + (noteLines.length > 0 ? 30 + noteLines.length * 28 : 0)
+    + (imgAreaHeight > 0 ? 10 + imgAreaHeight : 0)
     + 30 + sourceLines.length * 20 + urlLines.length * 20 + 50;
 
   canvas.width = w;
@@ -1029,30 +1081,27 @@ function generateShareCard(comment, templateId = 'default') {
   // 背景：图片模板用纹理图 + 半透明遮罩，默认模板用纯色 + 噪点
   const template = SHARE_TEMPLATES.find(t => t.id === templateId);
   if (template && template.type === 'image') {
-    const img = preloadedTemplates[templateId];
-    if (img && img.complete && img.naturalWidth > 0) {
-      // 按 cover 方式填充画布
-      const imgRatio = img.naturalWidth / img.naturalHeight;
+    const tplImg = preloadedTemplates[templateId];
+    if (tplImg && tplImg.complete && tplImg.naturalWidth > 0) {
+      const imgRatio = tplImg.naturalWidth / tplImg.naturalHeight;
       const canvasRatio = w / cardHeight;
       let sx, sy, sw, sh;
       if (imgRatio > canvasRatio) {
-        sh = img.naturalHeight;
-        sw = img.naturalHeight * canvasRatio;
-        sx = (img.naturalWidth - sw) / 2;
+        sh = tplImg.naturalHeight;
+        sw = tplImg.naturalHeight * canvasRatio;
+        sx = (tplImg.naturalWidth - sw) / 2;
         sy = 0;
       } else {
-        sw = img.naturalWidth;
-        sh = img.naturalWidth / canvasRatio;
+        sw = tplImg.naturalWidth;
+        sh = tplImg.naturalWidth / canvasRatio;
         sx = 0;
-        sy = (img.naturalHeight - sh) / 2;
+        sy = (tplImg.naturalHeight - sh) / 2;
       }
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, cardHeight);
+      ctx.drawImage(tplImg, sx, sy, sw, sh, 0, 0, w, cardHeight);
     }
-    // 半透明白色遮罩保证文字可读
     ctx.fillStyle = 'rgba(255, 252, 245, 0.55)';
     ctx.fillRect(0, 0, w, cardHeight);
   } else {
-    // 默认：复古纸张底色 + 纹理
     ctx.fillStyle = '#f5f0e6';
     ctx.fillRect(0, 0, w, cardHeight);
     addNoiseTexture(ctx, w, cardHeight);
@@ -1094,6 +1143,19 @@ function generateShareCard(comment, templateId = 'default') {
     noteLines.forEach(line => {
       ctx.fillText(line, padding, y);
       y += 28;
+    });
+  }
+
+  // 评论图片
+  if (imgDrawList.length > 0) {
+    y += 20;
+    imgDrawList.forEach(({ img, iw, ih }) => {
+      // 图片加细边框
+      const imgX = padding + (imgMaxWidth - iw) / 2;
+      ctx.fillStyle = '#e8e0d5';
+      ctx.fillRect(imgX - 1, y - 1, iw + 2, ih + 2);
+      ctx.drawImage(img, imgX, y, iw, ih);
+      y += ih + 10;
     });
   }
 
@@ -1207,14 +1269,14 @@ function showSharePreview(canvas, comment) {
     nameSpan.textContent = tpl.name;
     item.appendChild(nameSpan);
 
-    item.addEventListener('click', () => {
+    item.addEventListener('click', async () => {
       if (currentTemplateId === tpl.id) return;
 
       grid.querySelectorAll('.template-thumb-item').forEach(el => el.classList.remove('active'));
       item.classList.add('active');
       currentTemplateId = tpl.id;
 
-      const newCanvas = generateShareCard(comment, tpl.id);
+      const newCanvas = await generateShareCard(comment, tpl.id);
       canvasWrapper.innerHTML = '';
       applyCanvasStyle(newCanvas);
       canvasWrapper.appendChild(newCanvas);

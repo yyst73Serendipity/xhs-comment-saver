@@ -128,6 +128,45 @@ function extractCommentText(el) {
 }
 
 /**
+ * 从评论元素中提取评论配图 URL 列表
+ * 排除：头像、内联表情包（emoji/sticker）、过小的图
+ * @param {Element} commentEl - 评论 DOM 元素
+ * @returns {string[]}
+ */
+function extractCommentImages(commentEl) {
+  const images = [];
+  const imgElements = commentEl.querySelectorAll('img');
+  const emojiRe = /emoji|sticker|expression|emotion|icon/i;
+  for (const img of imgElements) {
+    const imgCls = img.className || '';
+    // 排除: img 自身 class 含 emoji/sticker 等表情关键词
+    if (typeof imgCls === 'string' && emojiRe.test(imgCls)) continue;
+    // 排除: 祖先元素 class 含 avatar / emoji / sticker 等关键词
+    let parent = img.parentElement;
+    let skip = false;
+    while (parent && parent !== commentEl) {
+      const cls = parent.className || '';
+      if (typeof cls === 'string' && (/avatar/i.test(cls) || emojiRe.test(cls))) {
+        skip = true;
+        break;
+      }
+      parent = parent.parentElement;
+    }
+    if (skip) continue;
+    // 排除过小的图（表情包通常 ≤ 60px）
+    const w = img.naturalWidth || img.width || 0;
+    const h = img.naturalHeight || img.height || 0;
+    if (w > 0 && h > 0 && (w < 60 || h < 60)) continue;
+    // 取 src 属性
+    const src = img.src || img.getAttribute('data-src') || '';
+    if (src && /^https?:\/\//i.test(src)) {
+      images.push(src);
+    }
+  }
+  return images;
+}
+
+/**
  * 提取评论作者昵称
  * @param {Element} commentEl
  * @returns {string}
@@ -230,7 +269,8 @@ function extractCommentData(commentEl) {
     author: author,
     postUrl: postUrl,
     postTitle: extractPostTitle(),
-    key: makeCommentKey(postUrl, author, text)
+    key: makeCommentKey(postUrl, author, text),
+    images: extractCommentImages(commentEl)
   };
 }
 

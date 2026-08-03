@@ -573,6 +573,29 @@ body {
   word-break: break-word;
 }
 
+/* 评论图片缩略图 */
+.comment-card-images {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.comment-card-images img {
+  height: 80px;
+  max-width: 160px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.comment-card-images img:hover {
+  transform: scale(1.04);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+
 /* 搜索高亮 */
 .search-highlight {
   background: #fde68a;
