@@ -560,7 +560,10 @@ function createCommentCard(comment) {
     if (newNote === (comment.note || '')) {
       // 切回查看态
       noteEdit.style.display = 'none';
-      noteView.style.display = newNote ? 'block' : 'none';
+      if (newNote) {
+        noteView.style.display = 'block';
+      }
+      // 无笔记时保持编辑态可见，否则展开/收起关联评论后 textarea 消失
       return;
     }
     comment.note = newNote;
