@@ -216,9 +216,17 @@ async function updateCommentCategory(id, category) {
   if (!comment) {
     throw new Error('评论不存在');
   }
-  comment.category = category;
+  // 若有关联评论组，同组所有评论一起改分类
+  let updated;
+  if (comment.groupId) {
+    updated = comments.filter(c => c.groupId === comment.groupId);
+    updated.forEach(c => c.category = category);
+  } else {
+    comment.category = category;
+    updated = [comment];
+  }
   await chrome.storage.local.set({ [STORAGE_KEY_COMMENTS]: comments });
-  return comment;
+  return updated;
 }
 
 /* 消息处理：根据 action 类型分发到对应的处理函数 */

@@ -754,16 +754,26 @@ async function changeCommentCategory(id, newCategory) {
       category: newCategory
     });
     if (response.success) {
-      // 更新本地状态
+      // 更新本地状态：同组评论一起改分类
       const comment = comments.find(c => c.id === id);
-      if (comment) comment.category = newCategory;
+      if (comment) {
+        if (comment.groupId) {
+          comments.forEach(c => { if (c.groupId === comment.groupId) c.category = newCategory; });
+        } else {
+          comment.category = newCategory;
+        }
+      }
       renderCategories();
     }
   } catch (err) {
     // 直接操作 storage
     const comment = comments.find(c => c.id === id);
     if (comment) {
-      comment.category = newCategory;
+      if (comment.groupId) {
+        comments.forEach(c => { if (c.groupId === comment.groupId) c.category = newCategory; });
+      } else {
+        comment.category = newCategory;
+      }
       await chrome.storage.local.set({ xhs_comments: comments });
       renderCategories();
     }
