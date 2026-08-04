@@ -1,4 +1,5 @@
 # IDE
+.claude/
 .idea/
 .vscode/
 *.swp
