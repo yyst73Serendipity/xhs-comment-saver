@@ -21,5 +21,8 @@ node_modules/
 *.mov
 *.mp4
 
+# 模板图片（本地生成）
+/assets/templates/
+
 # 草稿
 uidraft/

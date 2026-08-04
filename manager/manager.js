@@ -525,11 +525,12 @@ function createCommentCard(comment) {
   time.textContent = formatTime(comment.savedAt);
   metaRight.appendChild(time);
 
-  // 复制按钮（仅复制评论文本）
+  // 复制按钮（暂时隐藏）
   const copyBtn = document.createElement('button');
   copyBtn.className = 'comment-card-action-btn';
   copyBtn.textContent = '复制';
   copyBtn.title = '复制评论原文';
+  copyBtn.style.display = 'none';
   copyBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     navigator.clipboard.writeText(comment.text).then(() => {
@@ -539,11 +540,12 @@ function createCommentCard(comment) {
   });
   metaRight.appendChild(copyBtn);
 
-  // 分享按钮（生成复古卡片图片）
+  // 分享按钮（暂时隐藏）
   const shareBtn = document.createElement('button');
   shareBtn.className = 'comment-card-action-btn';
   shareBtn.textContent = '分享';
   shareBtn.title = '生成分享卡片';
+  shareBtn.style.display = 'none';
   shareBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
     const canvas = await generateShareCard(comment);
