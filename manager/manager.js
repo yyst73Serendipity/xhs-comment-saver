@@ -682,12 +682,38 @@ function createCommentGroupCard(group) {
     const ctxText = document.createElement('div');
     ctxText.className = 'comment-context-text';
     ctxText.innerHTML = highlightText(comment.text, searchKeyword);
+    ctxBody.appendChild(ctxText);
+
+    // 关联评论图片缩略图
+    if (comment.images && comment.images.length > 0) {
+      const imagesRow = document.createElement('div');
+      imagesRow.className = 'comment-card-images';
+      comment.images.forEach(url => {
+        const thumb = document.createElement('img');
+        thumb.src = url;
+        thumb.loading = 'lazy';
+        thumb.addEventListener('click', () => window.open(url, '_blank'));
+        imagesRow.appendChild(thumb);
+      });
+      ctxBody.appendChild(imagesRow);
+    }
+
+    // 关联评论语音
+    if (comment.audio && comment.audio.url) {
+      const audioWrapper = document.createElement('div');
+      audioWrapper.className = 'comment-card-audio';
+      const audioEl = document.createElement('audio');
+      audioEl.controls = true;
+      audioEl.src = comment.audio.url;
+      audioEl.preload = 'metadata';
+      audioWrapper.appendChild(audioEl);
+      ctxBody.appendChild(audioWrapper);
+    }
 
     const ctxAuthor = document.createElement('span');
     ctxAuthor.className = 'comment-context-author';
     ctxAuthor.textContent = comment.author ? '— ' + comment.author : '';
 
-    ctxBody.appendChild(ctxText);
     ctxBody.appendChild(ctxAuthor);
     ctxCard.appendChild(ctxBody);
 
