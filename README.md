@@ -26,12 +26,6 @@
 - 每条收藏支持添加私人笔记，hover 卡片底部即可输入
 - 有笔记的评论始终显示笔记内容，hover 可继续编辑
 
-**分享卡片**
-- 将评论生成复古风格图片卡片并下载
-- 关联评论组全部展示在同一张卡片中（作者+正文+图片+语音），最后附笔记
-- 支持 23 种模板（1 种默认纯色 + 22 种纸张纹理），模板缩略图实时预览
-- 分享卡片仅保留评论内容和笔记，不含帖子来源链接
-
 **数据导入/导出**
 - JSON 格式导出备份，支持导入合并（按 ID 自动去重）
 - 数据存储在 chrome.storage.local，离线可用
@@ -49,7 +43,6 @@ xhs-comment-saver/
 │   ├── icon-16.png               # 扩展图标 16x16
 │   ├── icon-48.png               # 扩展图标 48x48
 │   ├── icon-128.png              # 扩展图标 128x128
-│   └── templates/                # 分享卡片纹理模板（22 张 JPG）
 ├── background/                   # Service Worker
 │   └── background.js             # 存储初始化、评论/分类 CRUD、消息通信
 ├── content/                      # 内容脚本（注入小红书页面）
@@ -58,7 +51,7 @@ xhs-comment-saver/
 ├── manager/                      # 管理页面（独立标签页）
 │   ├── manager.html              # 页面结构
 │   ├── manager.css               # 视觉样式（v2 浅暖色侧边栏 + 卡片质感）
-│   └── manager.js                # 分类筛选、搜索高亮、笔记、分享卡片生成（Canvas API）
+│   └── manager.js                # 分类筛选、搜索高亮、笔记、评论分类管理
 └── tests/                        # 测试文件
     └── storage.test.html         # 存储操作单元测试
 ```
@@ -89,4 +82,3 @@ xhs-comment-saver/
 - Chrome Extension Manifest V3
 - 纯 HTML / CSS / JavaScript（无框架依赖）
 - chrome.storage.local 本地存储
-- Canvas API 生成分享卡片
