@@ -240,6 +240,20 @@ function extractPostTitle() {
 }
 
 /**
+ * 规范化帖子 URL：去掉查询参数和哈希，保留干净的可访问链接
+ * @param {string} url
+ * @returns {string}
+ */
+function normalizePostUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.origin + u.pathname;
+  } catch {
+    return url;
+  }
+}
+
+/**
  * 生成评论的组合去重键（帖子URL + 作者 + 正文）
  * 用作已收藏评论的唯一标识，比纯文本匹配可靠
  * @param {string} postUrl
@@ -248,7 +262,7 @@ function extractPostTitle() {
  * @returns {string}
  */
 function makeCommentKey(postUrl, author, text) {
-  return [postUrl, author, text].map(s => (s || '').trim()).join('||');
+  return [normalizePostUrl(postUrl), author, text].map(s => (s || '').trim()).join('||');
 }
 
 /**
@@ -265,7 +279,7 @@ function isCommentSaved(commentEl) {
   const cid = extractCommentId(commentEl);
   if (cid && savedCommentIds.has(cid)) return true;
   // 回退：按组合键匹配
-  const key = makeCommentKey(window.location.href, extractAuthor(commentEl), text);
+  const key = makeCommentKey(normalizePostUrl(window.location.href), extractAuthor(commentEl), text);
   return savedCommentKeys.has(key);
 }
 
@@ -277,7 +291,7 @@ function isCommentSaved(commentEl) {
 function extractCommentData(commentEl) {
   const author = extractAuthor(commentEl);
   const text = extractCommentText(commentEl);
-  const postUrl = window.location.href;
+  const postUrl = normalizePostUrl(window.location.href);
   return {
     commentId: extractCommentId(commentEl),
     text: text,

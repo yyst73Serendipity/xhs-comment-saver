@@ -1051,12 +1051,6 @@ async function generateShareCard(comment, templateId = 'default') {
   const textLines = wrapText(ctx, comment.text, w - padding * 2);
   const noteLines = comment.note ? wrapText(ctx, '笔记：' + comment.note, w - padding * 2) : [];
 
-  // 来源链接和标题
-  ctx.font = '11px Georgia, "Songti SC", "Noto Serif SC", serif';
-  const sourceText = '来自：' + (comment.postTitle || '小红书');
-  const sourceLines = wrapText(ctx, sourceText, w - padding * 2);
-  const urlLines = wrapText(ctx, comment.postUrl || '', w - padding * 2);
-
   // 预加载评论图片（最多 2 张）
   const images = comment.images && comment.images.length > 0 ? comment.images.slice(0, 2) : [];
   let loadedImages = [];
@@ -1100,7 +1094,7 @@ async function generateShareCard(comment, templateId = 'default') {
     + (noteLines.length > 0 ? 30 + noteLines.length * 28 : 0)
     + (imgAreaHeight > 0 ? 10 + imgAreaHeight : 0)
     + (hasAudio ? 40 : 0)
-    + 30 + sourceLines.length * 20 + urlLines.length * 20 + 50;
+    + 50;
 
   canvas.width = w;
   canvas.height = cardHeight;
@@ -1194,32 +1188,6 @@ async function generateShareCard(comment, templateId = 'default') {
       y += ih + 10;
     });
   }
-
-  // 底部分隔
-  y += 15;
-  ctx.strokeStyle = '#8b7355';
-  ctx.lineWidth = 0.5;
-  ctx.beginPath();
-  ctx.moveTo(padding, y);
-  ctx.lineTo(w - padding, y);
-  ctx.stroke();
-
-  // 来源标题
-  y += 25;
-  ctx.fillStyle = '#8b7355';
-  ctx.font = '11px Georgia, "Songti SC", "Noto Serif SC", serif';
-  sourceLines.forEach(line => {
-    ctx.fillText(line, padding, y);
-    y += 20;
-  });
-
-  // 来源链接（可多行）
-  ctx.fillStyle = '#6b5b4f';
-  ctx.font = '10px Georgia, serif';
-  urlLines.forEach(line => {
-    ctx.fillText(line, padding, y);
-    y += 20;
-  });
 
   return canvas;
 }
