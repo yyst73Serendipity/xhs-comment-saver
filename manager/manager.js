@@ -1037,6 +1037,7 @@ function getFilteredCount() {
 
 /**
  * 生成复古风格分享卡片
+ * 当评论属于一个组时，展示该组所有评论（作者+正文+图片+语音），最后附笔记
  * @param {Object} comment - 评论数据
  * @param {string} templateId - 模板 ID，默认 'default'
  * @returns {HTMLCanvasElement}
@@ -1046,16 +1047,24 @@ async function generateShareCard(comment, templateId = 'default') {
   const ctx = canvas.getContext('2d');
   const w = 600;
   const padding = 40;
+  const lineH = 28;
+  const imgMaxWidth = w - padding * 2;
+  const imgMaxHeight = 180;
+
+  // 收集同组所有评论
+  let shareComments = [comment];
+  if (comment.groupId) {
+    const group = comments.filter(c => c.groupId === comment.groupId);
+    if (group.length > 0) shareComments = group.sort((a, b) => a.groupIndex - b.groupIndex);
+  }
 
   ctx.font = '16px Georgia, "Songti SC", "Noto Serif SC", serif';
-  const textLines = wrapText(ctx, comment.text, w - padding * 2);
-  const noteLines = comment.note ? wrapText(ctx, '笔记：' + comment.note, w - padding * 2) : [];
 
-  // 预加载评论图片（最多 2 张）
-  const images = comment.images && comment.images.length > 0 ? comment.images.slice(0, 2) : [];
-  let loadedImages = [];
-  if (images.length > 0) {
-    loadedImages = await Promise.all(images.map(url => {
+  // 预加载所有评论的图片（每条最多 2 张）
+  const allImageData = await Promise.all(shareComments.map(c => {
+    const imgs = c.images && c.images.length > 0 ? c.images.slice(0, 2) : [];
+    if (imgs.length === 0) return [];
+    return Promise.all(imgs.map(url => {
       return new Promise(resolve => {
         const img = new Image();
         img.crossOrigin = 'anonymous';
@@ -1063,43 +1072,48 @@ async function generateShareCard(comment, templateId = 'default') {
         img.onerror = () => resolve(null);
         img.src = url;
       });
-    }));
-    loadedImages = loadedImages.filter(img => img !== null);
-  }
+    })).then(results => results.filter(r => r !== null));
+  }));
 
-  // 图片区域高度（每张图最大高度 180px，宽度等比缩放至 w - padding*2）
-  const imgMaxWidth = w - padding * 2;
-  const imgMaxHeight = 180;
-  let imgAreaHeight = 0;
-  const imgDrawList = [];
-  loadedImages.forEach(img => {
-    let iw = img.naturalWidth;
-    let ih = img.naturalHeight;
-    if (iw > imgMaxWidth) {
-      ih = ih * (imgMaxWidth / iw);
-      iw = imgMaxWidth;
-    }
-    if (ih > imgMaxHeight) {
-      iw = iw * (imgMaxHeight / ih);
-      ih = imgMaxHeight;
-    }
-    imgDrawList.push({ img, iw, ih });
-    imgAreaHeight += ih + 10; // 10px 间距
+  // 为每条评论预计算布局数据（文本行、图片参数、语音）
+  const blockLayouts = shareComments.map((c, i) => {
+    const prefix = (c.author || '匿名') + '：';
+    const textLayout = wrapTextWithPrefix(ctx, c.text, prefix, w - padding * 2);
+
+    const imgDrawList = [];
+    let imgH = 0;
+    (allImageData[i] || []).forEach(img => {
+      let iw = img.naturalWidth;
+      let ih = img.naturalHeight;
+      if (iw > imgMaxWidth) { ih = ih * (imgMaxWidth / iw); iw = imgMaxWidth; }
+      if (ih > imgMaxHeight) { iw = iw * (imgMaxHeight / ih); ih = imgMaxHeight; }
+      imgDrawList.push({ img, iw, ih });
+      imgH += ih + 10;
+    });
+
+    const hasAudio = !!(c.audio && c.audio.url);
+    return { prefix, textLayout, imgDrawList, imgH, hasAudio };
   });
-  if (imgAreaHeight > 0) imgAreaHeight += 15; // 底部留白
 
-  const hasAudio = comment.audio && comment.audio.url;
+  // 笔记（取自第一条评论）
+  const note = shareComments[0].note;
+  const noteLines = note ? wrapText(ctx, '笔记：' + note, w - padding * 2) : [];
 
-  let cardHeight = padding + 60 + textLines.length * 28
-    + (noteLines.length > 0 ? 30 + noteLines.length * 28 : 0)
-    + (imgAreaHeight > 0 ? 10 + imgAreaHeight : 0)
-    + (hasAudio ? 40 : 0)
-    + 50;
+  // 计算卡片总高度
+  let blocksH = 0;
+  blockLayouts.forEach((bl, i) => {
+    blocksH += Math.max(bl.textLayout.lines.length, 1) * lineH;
+    if (bl.imgDrawList.length > 0) blocksH += 20 + bl.imgH;
+    if (bl.hasAudio) blocksH += 40;
+    if (i < blockLayouts.length - 1) blocksH += lineH; // 评论间空行
+  });
+  const noteH = noteLines.length > 0 ? 30 + noteLines.length * lineH : 0;
+  const cardHeight = padding + 60 + blocksH + noteH + 50;
 
   canvas.width = w;
   canvas.height = cardHeight;
 
-  // 背景：图片模板用纹理图 + 半透明遮罩，默认模板用纯色 + 噪点
+  // 背景
   const template = SHARE_TEMPLATES.find(t => t.id === templateId);
   if (template && template.type === 'image') {
     const tplImg = preloadedTemplates[templateId];
@@ -1128,32 +1142,70 @@ async function generateShareCard(comment, templateId = 'default') {
     addNoiseTexture(ctx, w, cardHeight);
   }
 
-  // 外边框
+  // 外边框 + 内边框
   ctx.strokeStyle = '#8b7355';
   ctx.lineWidth = 2;
   ctx.strokeRect(10, 10, w - 20, cardHeight - 20);
-
-  // 内边框
   ctx.strokeStyle = '#c4a97d';
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 4]);
   ctx.strokeRect(18, 18, w - 36, cardHeight - 36);
   ctx.setLineDash([]);
 
-  // 顶部装饰
+  // 顶部标题
   ctx.fillStyle = '#8b7355';
   ctx.font = 'bold 18px Georgia, "Songti SC", "Noto Serif SC", serif';
   ctx.textAlign = 'center';
   ctx.fillText('—— 小红书评论收藏 ——', w / 2, padding + 30);
 
-  // 评论正文
-  ctx.fillStyle = '#3d2b1f';
-  ctx.font = '16px Georgia, "Songti SC", "Noto Serif SC", serif';
+  // 逐条渲染评论
   ctx.textAlign = 'left';
+  ctx.font = '16px Georgia, "Songti SC", "Noto Serif SC", serif';
   let y = padding + 80;
-  textLines.forEach(line => {
-    ctx.fillText(line, padding, y);
-    y += 28;
+
+  blockLayouts.forEach((bl, i) => {
+    const { lines, prefixWidth } = bl.textLayout;
+
+    // 第一行：作者前缀 + 正文首段
+    ctx.fillStyle = '#8b7355';
+    ctx.fillText(bl.prefix, padding, y);
+    ctx.fillStyle = '#3d2b1f';
+    if (lines.length > 0) {
+      ctx.fillText(lines[0], padding + prefixWidth, y);
+    }
+    // 续行：仅正文
+    for (let j = 1; j < lines.length; j++) {
+      y += lineH;
+      ctx.fillText(lines[j], padding, y);
+    }
+    y += lineH;
+
+    // 图片（紧跟本评论正文）
+    if (bl.imgDrawList.length > 0) {
+      y += 20;
+      bl.imgDrawList.forEach(({ img, iw, ih }) => {
+        const imgX = padding + (imgMaxWidth - iw) / 2;
+        ctx.fillStyle = '#e8e0d5';
+        ctx.fillRect(imgX - 1, y - 1, iw + 2, ih + 2);
+        ctx.drawImage(img, imgX, y, iw, ih);
+        y += ih + 10;
+      });
+    }
+
+    // 语音（紧跟本评论正文）
+    if (bl.hasAudio) {
+      y += 15;
+      ctx.fillStyle = '#8b7355';
+      ctx.font = 'italic 14px Georgia, "Songti SC", "Noto Serif SC", serif';
+      ctx.fillText('🎤 语音评论', padding, y);
+      y += 25;
+      ctx.font = '16px Georgia, "Songti SC", "Noto Serif SC", serif';
+    }
+
+    // 评论间空行
+    if (i < blockLayouts.length - 1) {
+      y += lineH;
+    }
   });
 
   // 笔记
@@ -1164,28 +1216,6 @@ async function generateShareCard(comment, templateId = 'default') {
     noteLines.forEach(line => {
       ctx.fillText(line, padding, y);
       y += 28;
-    });
-  }
-
-  // 语音标注
-  if (hasAudio) {
-    y += 15;
-    ctx.fillStyle = '#8b7355';
-    ctx.font = 'italic 14px Georgia, "Songti SC", "Noto Serif SC", serif';
-    ctx.fillText('🎤 语音评论', padding, y);
-    y += 25;
-  }
-
-  // 评论图片
-  if (imgDrawList.length > 0) {
-    y += 20;
-    imgDrawList.forEach(({ img, iw, ih }) => {
-      // 图片加细边框
-      const imgX = padding + (imgMaxWidth - iw) / 2;
-      ctx.fillStyle = '#e8e0d5';
-      ctx.fillRect(imgX - 1, y - 1, iw + 2, ih + 2);
-      ctx.drawImage(img, imgX, y, iw, ih);
-      y += ih + 10;
     });
   }
 
@@ -1347,6 +1377,35 @@ function wrapText(ctx, text, maxWidth) {
   }
   if (current) lines.push(current);
   return lines;
+}
+
+/**
+ * 带前缀的文本换行：第一行宽度减去前缀占宽
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {string} text - 正文
+ * @param {string} prefix - 前缀（如 "作者名："）
+ * @param {number} maxWidth
+ * @returns {{ lines: string[], prefixWidth: number }}
+ */
+function wrapTextWithPrefix(ctx, text, prefix, maxWidth) {
+  const lines = [];
+  const prefixW = ctx.measureText(prefix).width;
+  const firstMax = maxWidth - prefixW;
+  let current = '';
+  let isFirst = true;
+  for (const char of text) {
+    const test = current + char;
+    const limit = isFirst ? firstMax : maxWidth;
+    if (ctx.measureText(test).width > limit && current.length > 0) {
+      lines.push(current);
+      current = char;
+      isFirst = false;
+    } else {
+      current = test;
+    }
+  }
+  if (current) lines.push(current);
+  return { lines, prefixWidth: prefixW };
 }
 
 /**
