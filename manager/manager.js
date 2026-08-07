@@ -2805,7 +2805,7 @@ function renderDashboardView() {
 function renderDashboardTopCats() {
   const now = Date.now();
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
-  const thisMonth = comments.filter(c => c.savedAt >= monthStart && c.savedAt <= now);
+  const thisMonth = comments.filter(c => c.savedAt >= monthStart && c.savedAt <= now && c.category !== '未分类');
 
   const catCounts = {};
   thisMonth.forEach(c => {
@@ -2872,8 +2872,8 @@ function renderDashboardTopCats() {
 function renderDashboardEmerging() {
   const now = Date.now();
   const DAY = 24 * 60 * 60 * 1000;
-  const recent14 = comments.filter(c => c.savedAt >= now - 14 * DAY);
-  const prev14 = comments.filter(c => c.savedAt >= now - 28 * DAY && c.savedAt < now - 14 * DAY);
+  const recent14 = comments.filter(c => c.savedAt >= now - 14 * DAY && c.category !== '未分类');
+  const prev14 = comments.filter(c => c.savedAt >= now - 28 * DAY && c.savedAt < now - 14 * DAY && c.category !== '未分类');
 
   const recentCounts = {};
   recent14.forEach(c => { recentCounts[c.category] = (recentCounts[c.category] || 0) + 1; });
@@ -2884,6 +2884,7 @@ function renderDashboardEmerging() {
   // 找出增长率最高的分类（近期 ≥ 2 条，前期有基础但低于近期）
   const emerging = [];
   Object.keys(recentCounts).forEach(cat => {
+    if (cat === '未分类') return;
     const recent = recentCounts[cat];
     const prev = prevCounts[cat] || 0;
     if (recent >= 2 && recent > prev) {
