@@ -2655,9 +2655,9 @@ function resizeGridCanvas(data) {
   const dpr = window.devicePixelRatio || 1;
   if (rect.width === 0 || rect.height === 0) return;
 
-  const cellW = 16, cellH = 24, cellGap = 2;
+  const cellW = 24, cellH = 24, cellGap = 2;
   const minW = data ? Math.max(rect.width, 58 + 8 + data.weekStarts.length * (cellW + cellGap) - cellGap) : rect.width;
-  const minH = data ? Math.max(rect.height, 10 + 30 + data.activeCats.length * (cellH + cellGap) - cellGap) : rect.height;
+  const minH = data ? Math.max(rect.height, 10 + 18 + data.activeCats.length * (cellH + cellGap) - cellGap) : rect.height;
 
   gridCanvas.width = minW * dpr;
   gridCanvas.height = minH * dpr;
@@ -2679,9 +2679,9 @@ function drawGrid(data) {
 
   const leftPad = 58;  // 分类名宽度
   const topPad = 10;
-  const bottomPad = 30;  // 留空间给竖排日期标签
+  const bottomPad = 18;  // 留空间给日期标签
   const rightPad = 8;
-  const cellW = 16;  // 固定格子宽度，多余空间留为空白或在 resize 时缩小
+  const cellW = 24;  // 固定格子宽度（保证横排 8/3 能看清）
   const cellH = 24;  // 固定格子高度
   const cellGap = 2;
 
@@ -2697,31 +2697,24 @@ function drawGrid(data) {
   ctx.fillStyle = '#4a4036';
   ctx.font = '11px sans-serif';
   ctx.textAlign = 'right';
+  ctx.textBaseline = 'alphabetic';
   activeCats.forEach((cat, i) => {
-    const y = topPad + i * (actualCellH + cellGap) + actualCellH / 2 + 3;
+    const y = topPad + i * (actualCellH + cellGap) + actualCellH / 2 + 4;
     const displayName = cat.length > 4 ? cat.slice(0, 4) + '…' : cat;
     ctx.fillText(displayName, leftPad - 6, y);
   });
 
-  // 绘制列标签（竖排，显示每周一的月.日）
+  // 绘制列标签（横排 月/日）
   ctx.fillStyle = '#8c7d6c';
   ctx.font = '9px sans-serif';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
   weekStarts.forEach((ws, i) => {
     const d = new Date(ws);
-    const label = (d.getMonth() + 1) + '.' + d.getDate();
+    const label = (d.getMonth() + 1) + '/' + d.getDate();
     const x = leftPad + i * (actualCellW + cellGap) + actualCellW / 2;
     if (x + actualCellW / 2 > w - rightPad) return;
-    // 竖排：逐字符绘制
-    const chars = label.split('');
-    const charH = 9;
-    const totalH = chars.length * charH;
-    let cy = h - bottomPad + 4 + (bottomPad - 6 - totalH) / 2;
-    chars.forEach(ch => {
-      cy += charH;
-      ctx.fillText(ch, x, cy);
-    });
+    ctx.fillText(label, x, h - bottomPad + 4);
   });
 
   // 绘制格子
