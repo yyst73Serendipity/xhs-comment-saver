@@ -2656,7 +2656,7 @@ function resizeGridCanvas(data) {
   if (rect.width === 0 || rect.height === 0) return;
 
   const cellW = 24, cellH = 24, cellGap = 2;
-  const minW = data ? Math.max(rect.width, 58 + 8 + data.weekStarts.length * (cellW + cellGap) - cellGap) : rect.width;
+  const minW = data ? Math.max(rect.width, 8 + 8 + data.weekStarts.length * (cellW + cellGap) - cellGap) : rect.width;
   const minH = data ? Math.max(rect.height, 10 + 18 + data.activeCats.length * (cellH + cellGap) - cellGap) : rect.height;
 
   gridCanvas.width = minW * dpr;
@@ -2677,7 +2677,7 @@ function drawGrid(data) {
 
   const { activeCats, weekStarts, matrix, maxCount } = data;
 
-  const leftPad = 58;  // 分类名宽度
+  const leftPad = 8;   // 左侧留白
   const topPad = 10;
   const bottomPad = 18;  // 留空间给日期标签
   const rightPad = 8;
@@ -2692,17 +2692,6 @@ function drawGrid(data) {
   const fitH = availH / activeCats.length;
   const actualCellW = fitW > cellW + cellGap ? fitW - cellGap : cellW;
   const actualCellH = fitH > cellH + cellGap ? fitH - cellGap : cellH;
-
-  // 绘制行标签
-  ctx.fillStyle = '#4a4036';
-  ctx.font = '11px sans-serif';
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'alphabetic';
-  activeCats.forEach((cat, i) => {
-    const y = topPad + i * (actualCellH + cellGap) + actualCellH / 2 + 4;
-    const displayName = cat.length > 4 ? cat.slice(0, 4) + '…' : cat;
-    ctx.fillText(displayName, leftPad - 6, y);
-  });
 
   // 绘制列标签（横排 月/日）
   ctx.fillStyle = '#8c7d6c';
