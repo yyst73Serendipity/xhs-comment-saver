@@ -2286,24 +2286,20 @@ function switchGraphView(viewName) {
   graphPlaceholder.classList.add('hidden');
   graphLegend.classList.add('hidden');
 
-  // 显示当前视图 + 设置滚动行为
+  // 显示当前视图
   switch (viewName) {
     case 'river':
       riverCanvas.classList.remove('hidden');
       riverLegend.classList.remove('hidden');
-      graphBody.style.overflow = 'auto';
       break;
     case 'grid':
       gridCanvas.classList.remove('hidden');
-      graphBody.style.overflow = 'auto';
       break;
     case 'dashboard':
       dashboardContainer.classList.remove('hidden');
-      graphBody.style.overflow = 'hidden';
       break;
     case 'graph':
       graphLegend.classList.remove('hidden');
-      graphBody.style.overflow = 'hidden';
       break;
   }
 

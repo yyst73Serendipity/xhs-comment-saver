@@ -1003,6 +1003,7 @@ body {
 /* ===== 自定义滚动条 ===== */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -1409,7 +1410,7 @@ body {
 
 .panel-graph .panel-section-body {
   flex: 1;
-  overflow: hidden;
+  overflow: auto;
   min-height: 0;
 }
 
