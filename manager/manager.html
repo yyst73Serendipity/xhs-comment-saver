@@ -115,9 +115,102 @@
           <p class="empty-hint">去小红书浏览帖子，点击评论旁的收藏按钮吧</p>
         </div>
       </section>
+
+      <!-- 右侧面板：AI 总结 + 思维导图 -->
+      <aside class="right-panel" id="right-panel">
+        <!-- AI 总结区 -->
+        <div class="panel-section panel-summary" id="panel-summary">
+          <div class="panel-section-header">
+            <span class="panel-section-title">AI 总结</span>
+            <div class="panel-summary-actions">
+              <button class="panel-action-btn" id="btn-summary-edit" title="编辑">✎</button>
+              <button class="panel-action-btn" id="btn-summary-ai" title="AI 生成">🤖</button>
+              <button class="panel-action-btn" id="btn-summary-export" title="导出 MD">📥</button>
+            </div>
+          </div>
+          <div class="panel-section-body" id="summary-body">
+            <!-- 空状态 -->
+            <div class="summary-empty" id="summary-empty">
+              <p>还没有总结笔记</p>
+              <p class="summary-empty-hint">点击 ✎ 手动编写<br>或点击 🤖 AI 自动生成</p>
+            </div>
+            <!-- 预览态 -->
+            <div class="summary-preview hidden" id="summary-preview"></div>
+            <!-- 编辑态（实时自动保存） -->
+            <textarea class="summary-editor hidden" id="summary-editor" placeholder="用 Markdown 写总结..."></textarea>
+            <!-- 生成中 -->
+            <div class="summary-loading hidden" id="summary-loading">
+              <div class="loading-spinner"></div>
+              <p>AI 正在分析评论...</p>
+            </div>
+            <!-- 全部分类占位 -->
+            <div class="summary-placeholder hidden" id="summary-placeholder">
+              <p>请选择具体分类</p>
+              <p class="summary-empty-hint">选择左侧分类后可使用 AI 总结和思维导图</p>
+            </div>
+          </div>
+          <!-- 自动保存状态 -->
+          <div class="summary-autosave hidden" id="summary-autosave"></div>
+          <!-- 元信息 -->
+          <div class="summary-meta hidden" id="summary-meta"></div>
+        </div>
+
+        <!-- 成长视图区（关系图谱 / 河流图 / 网格图 / 仪表盘） -->
+        <div class="panel-section panel-graph" id="panel-graph">
+          <div class="panel-section-header">
+            <span class="panel-section-title" id="graph-view-title">关系图谱</span>
+            <div class="panel-graph-actions">
+              <div class="view-switch-group">
+                <button class="view-switch-btn" data-view="river" title="河流图">🌊</button>
+                <button class="view-switch-btn" data-view="grid" title="网格图">📊</button>
+                <button class="view-switch-btn" data-view="dashboard" title="仪表盘">📈</button>
+                <button class="view-switch-btn active" data-view="graph" title="关系图">🔗</button>
+              </div>
+            </div>
+          </div>
+          <div class="panel-section-body" id="graph-body">
+            <!-- 河流图 -->
+            <canvas id="river-canvas" class="view-canvas hidden"></canvas>
+            <!-- 河流图图例 -->
+            <div id="river-legend" class="river-legend hidden"></div>
+            <!-- 网格图 -->
+            <canvas id="grid-canvas" class="view-canvas hidden"></canvas>
+            <!-- 网格图 tooltip -->
+            <div class="grid-tooltip hidden" id="grid-tooltip"></div>
+            <!-- 仪表盘 -->
+            <div id="dashboard-container" class="hidden"></div>
+            <!-- 关系图谱 -->
+            <canvas id="graph-canvas" class="view-canvas"></canvas>
+            <!-- 节点 tooltip -->
+            <div class="graph-tooltip hidden" id="graph-tooltip"></div>
+            <!-- 节点详情浮层 -->
+            <div class="graph-detail-popup hidden" id="graph-detail-popup">
+              <div class="graph-detail-close" id="graph-detail-close">✕</div>
+              <div class="graph-detail-author" id="graph-detail-author"></div>
+              <div class="graph-detail-text" id="graph-detail-text"></div>
+              <div class="graph-detail-post" id="graph-detail-post"></div>
+            </div>
+            <!-- 关系图谱空状态 -->
+            <div class="graph-empty hidden" id="graph-empty">
+              <span>节点太少（需要 ≥ 3 条评论）</span>
+            </div>
+            <!-- 关系图谱图例 -->
+            <div class="graph-legend" id="graph-legend">
+              <span><span class="graph-legend-line" style="background:rgba(232,56,79,0.5);"></span> 关联评论组</span>
+              <span><span class="graph-legend-line" style="border-top:1px dashed rgba(180,160,140,0.4);"></span> 同一帖子</span>
+              <span><span class="graph-legend-line" style="border-top:1px dotted rgba(180,160,140,0.25);"></span> 同一作者</span>
+            </div>
+            <!-- 关系图谱全部分类占位 -->
+            <div class="graph-placeholder hidden" id="graph-placeholder">
+              <span>请选择具体分类</span>
+            </div>
+          </div>
+        </div>
+      </aside>
     </div>
   </div>
 
+  <script src="apiconfig.js"></script>
   <script src="manager.js"></script>
 </body>
 </html>

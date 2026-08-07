@@ -11,6 +11,24 @@ let searchKeyword = '';        // 当前搜索关键词
 let editingCategory = null;   // 当前正在内联编辑的分类名
 let pendingDeleteCommentId = null; // 待删除的评论 ID
 
+/* ========== AI 总结相关状态 ========== */
+let summaries = {};              // { [category]: { content, updatedAt, generatedBy } }
+let summaryEditMode = false;     // 是否编辑态
+let summaryGenerating = false;   // 是否正在 AI 生成
+
+/* ========== 拓扑图相关状态 ========== */
+let currentGraphView = 'graph';   // 'river' | 'grid' | 'dashboard' | 'graph'
+let graphNodes = [];             // 当前图谱节点
+let graphEdges = [];             // 当前图谱边
+let graphScale = 1;
+let graphOffsetX = 0, graphOffsetY = 0;
+let graphSelectedNode = null;
+let graphDraggingNode = null;
+let graphHoveredNode = null;
+let graphPanning = false;
+let graphLastX = 0, graphLastY = 0;
+let graphDirty = true;
+
 /* 分享卡片模板列表：默认（纯色复古底）+ 14张纸张纹理图片 */
 const SHARE_TEMPLATES = [
   { id: 'default', name: '默认', type: 'default', src: null }
@@ -70,6 +88,38 @@ const resultModalTitle = document.getElementById('result-modal-title');
 const resultModalBody = document.getElementById('result-modal-body');
 const btnResultModalOk = document.getElementById('btn-result-modal-ok');
 
+/* ========== 右侧面板 DOM 引用 ========== */
+const rightPanel = document.getElementById('right-panel');
+const summaryEmpty = document.getElementById('summary-empty');
+const summaryPreview = document.getElementById('summary-preview');
+const summaryEditor = document.getElementById('summary-editor');
+const summaryLoading = document.getElementById('summary-loading');
+const summaryPlaceholder = document.getElementById('summary-placeholder');
+const summaryMeta = document.getElementById('summary-meta');
+const summaryAutosave = document.getElementById('summary-autosave');
+const btnSummaryEdit = document.getElementById('btn-summary-edit');
+const btnSummaryAi = document.getElementById('btn-summary-ai');
+const btnSummaryExport = document.getElementById('btn-summary-export');
+const graphCanvas = document.getElementById('graph-canvas');
+const graphBody = document.getElementById('graph-body');
+const graphEmpty = document.getElementById('graph-empty');
+const graphPlaceholder = document.getElementById('graph-placeholder');
+const graphLegend = document.getElementById('graph-legend');
+const graphTooltip = document.getElementById('graph-tooltip');
+const graphDetailPopup = document.getElementById('graph-detail-popup');
+const graphDetailClose = document.getElementById('graph-detail-close');
+const graphDetailAuthor = document.getElementById('graph-detail-author');
+const graphDetailText = document.getElementById('graph-detail-text');
+const graphDetailPost = document.getElementById('graph-detail-post');
+
+/* ========== 多视图 DOM 引用 ========== */
+const graphViewTitle = document.getElementById('graph-view-title');
+const riverCanvas = document.getElementById('river-canvas');
+const riverLegend = document.getElementById('river-legend');
+const gridCanvas = document.getElementById('grid-canvas');
+const gridTooltip = document.getElementById('grid-tooltip');
+const dashboardContainer = document.getElementById('dashboard-container');
+
 /**
  * 去重：按 commentId 或 key 去除重复评论，保留最早保存的那条
  * @param {Array} list - 评论列表
@@ -118,6 +168,14 @@ async function init() {
     await chrome.storage.local.set({ xhs_comments: comments });
   }
 
+  // 加载 AI 总结和 API 配置
+  try {
+    const configResult = await chrome.storage.local.get('xhs_summaries');
+    summaries = configResult.xhs_summaries || {};
+  } catch (e) { /* 忽略 */ }
+
+  await loadApiConfig();
+
   renderAll();
 }
 
@@ -129,6 +187,7 @@ function renderAll() {
   renderComments();
   updateTotalCount();
   updateEmptyState();
+  updateRightPanel();
 }
 
 /**
@@ -881,6 +940,9 @@ async function confirmDeleteCategory() {
       if (commentResp.success) {
         comments = commentResp.data;
       }
+      // 清理已删除分类的 AI 总结
+      delete summaries[name];
+      await saveSummariesToStorage();
       if (currentCategory === name) {
         currentCategory = '全部';
       }
@@ -890,9 +952,11 @@ async function confirmDeleteCategory() {
     // 直接操作 storage
     categories = categories.filter(c => c !== name);
     comments = comments.map(c => c.category === name ? { ...c, category: fallbackCat } : c);
+    delete summaries[name];
     await chrome.storage.local.set({
       xhs_categories: categories,
-      xhs_comments: comments
+      xhs_comments: comments,
+      xhs_summaries: summaries
     });
     if (currentCategory === name) {
       currentCategory = '全部';
@@ -973,6 +1037,12 @@ async function renameCategoryHandler(oldName, newName) {
       if (commentResp.success) {
         comments = commentResp.data;
       }
+      // 迁移 AI 总结
+      if (summaries[oldName]) {
+        summaries[newName] = summaries[oldName];
+        delete summaries[oldName];
+        await saveSummariesToStorage();
+      }
       if (currentCategory === oldName) {
         currentCategory = newName;
       }
@@ -990,9 +1060,15 @@ async function renameCategoryHandler(oldName, newName) {
     if (idx !== -1) {
       categories[idx] = newName;
       comments = comments.map(c => c.category === oldName ? { ...c, category: newName } : c);
+      // 迁移 AI 总结
+      if (summaries[oldName]) {
+        summaries[newName] = summaries[oldName];
+        delete summaries[oldName];
+      }
       await chrome.storage.local.set({
         xhs_categories: categories,
-        xhs_comments: comments
+        xhs_comments: comments,
+        xhs_summaries: summaries
       });
       if (currentCategory === oldName) {
         currentCategory = newName;
@@ -1464,9 +1540,9 @@ function addNoiseTexture(ctx, w, h) {
  * 导出数据为 JSON 文件并触发下载
  */
 async function exportData() {
-  const result = await chrome.storage.local.get(['xhs_categories', 'xhs_comments']);
-  const comments = result.xhs_comments || [];
-  if (comments.length === 0) {
+  const result = await chrome.storage.local.get(['xhs_categories', 'xhs_comments', 'xhs_summaries']);
+  const exportComments = result.xhs_comments || [];
+  if (exportComments.length === 0) {
     showResultModal('导出为文件', '暂无评论数据可导出');
     return;
   }
@@ -1474,7 +1550,8 @@ async function exportData() {
     version: 1,
     exportedAt: new Date().toISOString(),
     categories: result.xhs_categories || [],
-    comments
+    comments: exportComments,
+    summaries: result.xhs_summaries || {}
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1504,9 +1581,10 @@ async function importData(file) {
     }
 
     // 读取当前数据
-    const current = await chrome.storage.local.get(['xhs_categories', 'xhs_comments']);
+    const current = await chrome.storage.local.get(['xhs_categories', 'xhs_comments', 'xhs_summaries']);
     const currentCategories = current.xhs_categories || [];
     const currentComments = current.xhs_comments || [];
+    const currentSummaries = current.xhs_summaries || {};
 
     // 合并分类（去重）
     const mergedCategories = [...currentCategories];
@@ -1523,9 +1601,13 @@ async function importData(file) {
     const newComments = data.comments.filter(c => !existingIds.has(c.id));
     const mergedComments = [...newComments, ...currentComments];
 
+    // 合并 AI 总结（导入的总结不覆盖已有）
+    const mergedSummaries = { ...(data.summaries || {}), ...currentSummaries };
+
     await chrome.storage.local.set({
       xhs_categories: mergedCategories,
-      xhs_comments: mergedComments
+      xhs_comments: mergedComments,
+      xhs_summaries: mergedSummaries
     });
 
     showResultModal('文件导入', `导入成功！新增 ${newCatCount} 个分类、${newComments.length} 条评论！`, () => location.reload());
@@ -1533,6 +1615,1623 @@ async function importData(file) {
     showResultModal('文件导入', `导入失败：文件内容无法解析（${err.message}）`);
   }
 }
+
+/* ========== 右侧面板：AI 总结 + 拓扑图 ========== */
+
+/**
+ * 更新右侧面板（分类切换时调用）
+ */
+function updateRightPanel() {
+  if (currentCategory === '全部') {
+    showSummaryPlaceholderState();
+  } else {
+    loadSummaryForCategory(currentCategory);
+  }
+  // 视图仅关系图谱受分类影响；河流图/网格图/仪表盘使用全量数据
+  if (currentGraphView === 'graph') {
+    buildAndRenderGraph();
+  }
+}
+
+/* ===== AI 总结 ===== */
+
+/** 显示「全部分类」占位 */
+function showSummaryPlaceholderState() {
+  summaryEmpty.classList.add('hidden');
+  summaryPreview.classList.add('hidden');
+  summaryEditor.classList.add('hidden');
+  summaryLoading.classList.add('hidden');
+  summaryPlaceholder.classList.remove('hidden');
+  summaryMeta.classList.add('hidden');
+  summaryAutosave.classList.add('hidden');
+  summaryEditMode = false;
+  btnSummaryEdit.classList.remove('active');
+}
+
+/** 显示空状态 */
+function showSummaryEmptyState() {
+  summaryEmpty.classList.remove('hidden');
+  summaryPreview.classList.add('hidden');
+  summaryEditor.classList.add('hidden');
+  summaryLoading.classList.add('hidden');
+  summaryPlaceholder.classList.add('hidden');
+  summaryMeta.classList.add('hidden');
+  summaryAutosave.classList.add('hidden');
+  summaryEditMode = false;
+  btnSummaryEdit.classList.remove('active');
+}
+
+/** 显示预览态 */
+function showSummaryPreviewState(summary) {
+  summaryEmpty.classList.add('hidden');
+  summaryPreview.classList.remove('hidden');
+  summaryEditor.classList.add('hidden');
+  summaryLoading.classList.add('hidden');
+  summaryPlaceholder.classList.add('hidden');
+  summaryMeta.classList.remove('hidden');
+  summaryAutosave.classList.add('hidden');
+  summaryEditMode = false;
+  btnSummaryEdit.classList.remove('active');
+
+  summaryPreview.innerHTML = renderMarkdown(summary.content);
+  summaryMeta.textContent = '最后更新: ' + formatTime(summary.updatedAt);
+}
+
+/** 加载某分类的总结 */
+function loadSummaryForCategory(category) {
+  const summary = summaries[category];
+  if (!summary || !summary.content) {
+    showSummaryEmptyState();
+  } else {
+    showSummaryPreviewState(summary);
+  }
+}
+
+/** 进入编辑态 */
+function enterSummaryEdit() {
+  summaryEditMode = true;
+  summaryEmpty.classList.add('hidden');
+  summaryPreview.classList.add('hidden');
+  summaryPlaceholder.classList.add('hidden');
+  summaryLoading.classList.add('hidden');
+  summaryMeta.classList.add('hidden');
+  summaryAutosave.classList.add('hidden');
+  summaryEditor.classList.remove('hidden');
+  const summary = summaries[currentCategory];
+  summaryEditor.value = summary ? summary.content : '';
+  btnSummaryEdit.classList.add('active');
+  btnSummaryEdit.title = '退出编辑';
+  summaryEditor.focus();
+}
+
+/** 退出编辑态 */
+function exitSummaryEdit() {
+  summaryEditMode = false;
+  summaryEditor.classList.add('hidden');
+  btnSummaryEdit.classList.remove('active');
+  btnSummaryEdit.title = '编辑';
+  summaryAutosave.classList.add('hidden');
+  const summary = summaries[currentCategory];
+  if (summary && summary.content) {
+    summaryPreview.classList.remove('hidden');
+    summaryPreview.innerHTML = renderMarkdown(summary.content);
+    summaryMeta.classList.remove('hidden');
+    summaryMeta.textContent = '最后更新: ' + formatTime(summary.updatedAt);
+    summaryEmpty.classList.add('hidden');
+    summaryPlaceholder.classList.add('hidden');
+  } else {
+    showSummaryEmptyState();
+  }
+}
+
+/** 防抖工具 */
+function debounce(fn, delay) {
+  let timer;
+  return function (...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+
+/** 自动保存总结（防抖 1 秒） */
+const autoSaveSummary = debounce(async function () {
+  const content = summaryEditor.value.trim();
+  if (!content) {
+    delete summaries[currentCategory];
+  } else {
+    summaries[currentCategory] = {
+      content,
+      updatedAt: Date.now(),
+      generatedBy: summaries[currentCategory]?.generatedBy === 'ai' ? 'ai' : 'manual'
+    };
+  }
+  await saveSummariesToStorage();
+  const now = new Date();
+  const time = String(now.getHours()).padStart(2, '0') + ':' +
+               String(now.getMinutes()).padStart(2, '0') + ':' +
+               String(now.getSeconds()).padStart(2, '0');
+  summaryAutosave.textContent = '已自动保存 ' + time;
+  summaryAutosave.classList.remove('hidden');
+}, 1000);
+
+/** 即时保存（退出编辑时用） */
+function flushAutoSave() {
+  const content = summaryEditor.value.trim();
+  if (!content) {
+    delete summaries[currentCategory];
+  } else {
+    summaries[currentCategory] = {
+      content,
+      updatedAt: Date.now(),
+      generatedBy: summaries[currentCategory]?.generatedBy === 'ai' ? 'ai' : 'manual'
+    };
+  }
+  saveSummariesToStorage();
+}
+
+/** AI 生成总结 */
+async function aiGenerateSummary() {
+  if (!window.__apiConfig || !window.__apiConfig.apiKey) {
+    alert('请先在 .env 文件中配置 API Key，在 apiconfig.json 中配置 activeProvider');
+    return;
+  }
+
+  const categoryComments = comments.filter(c => c.category === currentCategory);
+  if (categoryComments.length === 0) return;
+
+  summaryGenerating = true;
+  summaryPreview.classList.add('hidden');
+  summaryEditor.classList.add('hidden');
+  summaryEmpty.classList.add('hidden');
+  summaryPlaceholder.classList.add('hidden');
+  summaryLoading.classList.remove('hidden');
+  summaryMeta.classList.add('hidden');
+  summaryAutosave.classList.add('hidden');
+  summaryEditMode = false;
+  btnSummaryEdit.classList.remove('active');
+
+  const commentsText = categoryComments.map(c =>
+    (c.author || '匿名') + '：' + c.text
+  ).join('\n');
+
+  const prompt = `你是一位内容分析助手。请对以下小红书评论进行总结分析：
+
+1. 归纳核心观点（提炼出 2-5 个关键主题）
+2. 对每个主题，列出代表性的评论原文（标注作者）
+3. 如果发现互相矛盾的观点，请特别指出
+4. 最后给出一个简要的总体结论
+
+格式要求：使用 Markdown，结构清晰
+
+以下是评论列表（格式：作者 | 评论内容）：
+---
+${commentsText}
+---`;
+
+  try {
+    const result = await callLLMApi(prompt);
+    summaries[currentCategory] = {
+      content: result,
+      updatedAt: Date.now(),
+      generatedBy: 'ai'
+    };
+    await saveSummariesToStorage();
+    summaryGenerating = false;
+    loadSummaryForCategory(currentCategory);
+  } catch (err) {
+    summaryGenerating = false;
+    summaryLoading.classList.add('hidden');
+    showApiErrorModal(err.code || 'Error', err.message || '未知错误');
+    loadSummaryForCategory(currentCategory);
+  }
+}
+
+/** 调用大模型 API */
+async function callLLMApi(prompt) {
+  const cfg = window.__apiConfig;
+  if (!cfg) throw new Error('API 配置未加载，请检查 apiconfig.json 和 .env');
+
+  const provider = API_PROVIDERS[cfg.provider];
+  if (!provider) throw new Error('未知的 provider: ' + cfg.provider);
+
+  const baseUrl = cfg.baseUrl;
+  const model = cfg.model;
+
+  const resp = await fetch(baseUrl, {
+    method: 'POST',
+    headers: provider.headers(cfg.apiKey),
+    body: JSON.stringify(provider.buildBody(model, prompt))
+  });
+  if (!resp.ok) {
+    let errBody;
+    try {
+      errBody = await resp.json();
+    } catch {
+      errBody = await resp.text().catch(() => '');
+    }
+
+    let errCode = '';
+    let errMsg = '';
+
+    // MiniMax 格式: { base_resp: { status_code, status_msg } }
+    if (errBody?.base_resp) {
+      errCode = 'HTTP ' + resp.status + ' / code ' + (errBody.base_resp.status_code || '?');
+      errMsg = errBody.base_resp.status_msg || JSON.stringify(errBody.base_resp);
+    }
+    // Anthropic 格式: { error: { type, message } }
+    // OpenAI 格式: { error: { code, message } }
+    else if (errBody?.error && typeof errBody.error === 'object') {
+      errCode = 'HTTP ' + resp.status + ' / ' + (errBody.error.type || errBody.error.code || 'error');
+      errMsg = errBody.error.message || JSON.stringify(errBody.error);
+    }
+    // 兜底
+    else {
+      errCode = 'HTTP ' + resp.status;
+      errMsg = typeof errBody === 'string' ? errBody : JSON.stringify(errBody);
+    }
+
+    throw { code: errCode, message: errMsg, status: resp.status };
+  }
+  const data = await resp.json();
+  return provider.parseResponse(data);
+}
+
+/** 简易 Markdown 渲染 → HTML */
+function renderMarkdown(md) {
+  const div = document.createElement('div');
+  let html = md;
+  // 转义 HTML（先解码防止二次转义）
+  div.textContent = '';
+  html = escapeHtml(html);
+  // 标题
+  html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // 粗体 / 斜体
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // 行内代码
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // 分隔线
+  html = html.replace(/^---$/gm, '<hr>');
+  // 无序列表
+  html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
+  // 有序列表
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+  // 连续 <li> 包裹 <ul>
+  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+  // 普通换行
+  html = html.replace(/\n\n/g, '<br><br>');
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
+/** 导出 Markdown 文件 */
+function exportSummaryMd() {
+  const summary = summaries[currentCategory];
+  const content = summary ? summary.content : '';
+  if (!content) {
+    alert('暂无总结内容可导出');
+    return;
+  }
+  const blob = new Blob([content], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const now = new Date();
+  const ts = now.getFullYear() + '-' +
+    String(now.getMonth() + 1).padStart(2, '0') + '-' +
+    String(now.getDate()).padStart(2, '0') + '-' +
+    String(now.getHours()).padStart(2, '0') + '-' +
+    String(now.getMinutes()).padStart(2, '0') + '-' +
+    String(now.getSeconds()).padStart(2, '0');
+  a.download = `${currentCategory}-${ts}.md`;
+  a.href = url;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** 保存总结到 storage */
+async function saveSummariesToStorage() {
+  try {
+    await chrome.storage.local.set({ xhs_summaries: summaries });
+  } catch (e) { /* 忽略 */ }
+}
+
+/**
+ * 显示 API 错误弹窗（复用 result-modal）
+ * @param {string} errCode - 错误代码
+ * @param {string} errMsg - 错误信息
+ */
+function showApiErrorModal(errCode, errMsg) {
+  resultModalTitle.textContent = 'AI 生成失败';
+  resultModalBody.innerHTML =
+    '<div style="margin-bottom:8px;font-size:12px;font-weight:600;color:var(--text-secondary)">错误代码</div>' +
+    '<div style="background:#fef2f2;color:#dc2626;padding:8px 12px;border-radius:6px;font-family:monospace;font-size:13px;margin-bottom:16px;word-break:break-all">' +
+    escapeHtml(errCode) +
+    '</div>' +
+    '<div style="margin-bottom:4px;font-size:12px;font-weight:600;color:var(--text-secondary)">错误信息</div>' +
+    '<div style="color:var(--text-secondary);line-height:1.7;word-break:break-word">' +
+    escapeHtml(errMsg) +
+    '</div>';
+
+  const actions = resultModal.querySelector('.modal-actions');
+  actions.innerHTML = '';
+
+  const hint = document.createElement('div');
+  hint.style.cssText = 'font-size:12px;color:#b8a99a;margin-bottom:14px;text-align:center';
+  hint.textContent = '请检查 .env 和 apiconfig.json 配置后重试';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'btn-modal-confirm';
+  closeBtn.textContent = '确定';
+  closeBtn.addEventListener('click', () => {
+    resultModal.classList.add('hidden');
+    restoreResultModalButtons();
+  });
+
+  actions.appendChild(closeBtn);
+  resultModalBody.appendChild(hint);
+  resultModal.classList.remove('hidden');
+  closeBtn.focus();
+}
+
+/** 恢复 result-modal 的默认确定按钮 */
+function restoreResultModalButtons() {
+  const actions = resultModal.querySelector('.modal-actions');
+  actions.innerHTML = '<button class="btn-modal-confirm" id="btn-result-modal-ok">确定</button>';
+  btnResultModalOk._onOk = null;
+  document.getElementById('btn-result-modal-ok').addEventListener('click', closeResultModal);
+}
+
+/* ===== 拓扑思维导图 ===== */
+
+/** 作者色板 */
+const authorColorPalette = ['#f4a8b4', '#f7c59f', '#a8d8b9', '#a0c4e8', '#d4b8e0',
+  '#f9d89c', '#b8d4e3', '#e8c4a0', '#c4d4b0', '#e0b8c8'];
+
+function getGraphAuthorColor(author, colorMap) {
+  if (!colorMap[author]) {
+    colorMap[author] = authorColorPalette[Object.keys(colorMap).length % authorColorPalette.length];
+  }
+  return colorMap[author];
+}
+
+/** 构建图谱数据 */
+function buildGraphData() {
+  const categoryComments = comments.filter(c => c.category === currentCategory);
+  const authorColorMap = {};
+
+  graphNodes = categoryComments.map(c => ({
+    id: c.id,
+    label: c.author || '匿名',
+    radius: Math.min(6 + c.text.length / 20, 18),
+    color: getGraphAuthorColor(c.author, authorColorMap),
+    data: c,
+    x: 0, y: 0, vx: 0, vy: 0
+  }));
+
+  graphEdges = [];
+  const nodeMap = new Map(graphNodes.map(n => [n.id, n]));
+
+  // 同帖子连线（链式）
+  const postGroups = new Map();
+  categoryComments.forEach(c => {
+    if (!c.postUrl) return;
+    const key = c.postUrl;
+    if (!postGroups.has(key)) postGroups.set(key, []);
+    postGroups.get(key).push(c);
+  });
+  postGroups.forEach(group => {
+    for (let i = 1; i < group.length; i++) {
+      graphEdges.push({ source: group[i - 1].id, target: group[i].id, type: 'post' });
+    }
+  });
+
+  // 同作者连线（链式）
+  const authorGroups = new Map();
+  categoryComments.forEach(c => {
+    const a = c.author || '匿名';
+    if (!authorGroups.has(a)) authorGroups.set(a, []);
+    authorGroups.get(a).push(c);
+  });
+  authorGroups.forEach(group => {
+    for (let i = 1; i < group.length; i++) {
+      graphEdges.push({ source: group[i - 1].id, target: group[i].id, type: 'author' });
+    }
+  });
+
+  // 同 groupId 连线（全连接）
+  const gidGroups = new Map();
+  categoryComments.forEach(c => {
+    if (!c.groupId) return;
+    if (!gidGroups.has(c.groupId)) gidGroups.set(c.groupId, []);
+    gidGroups.get(c.groupId).push(c);
+  });
+  gidGroups.forEach(group => {
+    for (let i = 0; i < group.length; i++) {
+      for (let j = i + 1; j < group.length; j++) {
+        graphEdges.push({ source: group[i].id, target: group[j].id, type: 'group' });
+      }
+    }
+  });
+
+  graphDirty = true;
+}
+
+/** 调整 Canvas 尺寸 */
+function resizeGraphCanvas() {
+  const rect = graphBody.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  if (rect.width === 0 || rect.height === 0) return;
+  graphCanvas.width = rect.width * dpr;
+  graphCanvas.height = rect.height * dpr;
+  graphCanvas.style.width = rect.width + 'px';
+  graphCanvas.style.height = rect.height + 'px';
+  const ctx = graphCanvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+/** 力导向布局 */
+function runForceLayout(iterations) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = graphCanvas.width / dpr;
+  const h = graphCanvas.height / dpr;
+  const cx = w / 2, cy = h / 2;
+  if (w === 0 || h === 0 || graphNodes.length === 0) return;
+
+  graphNodes.forEach(n => {
+    n.x = 40 + Math.random() * (w - 80);
+    n.y = 40 + Math.random() * (h - 80);
+    n.vx = 0; n.vy = 0;
+  });
+
+  const k = Math.sqrt(w * h / graphNodes.length) * 0.3;
+
+  for (let iter = 0; iter < iterations; iter++) {
+    const temp = Math.max(0.1, 1 - iter / iterations);
+
+    // 斥力
+    for (let i = 0; i < graphNodes.length; i++) {
+      for (let j = i + 1; j < graphNodes.length; j++) {
+        const a = graphNodes[i], b = graphNodes[j];
+        let dx = b.x - a.x, dy = b.y - a.y;
+        let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const force = k * k / dist * temp;
+        a.vx -= dx / dist * force; a.vy -= dy / dist * force;
+        b.vx += dx / dist * force; b.vy += dy / dist * force;
+      }
+    }
+
+    // 引力
+    graphEdges.forEach(edge => {
+      const a = graphNodes.find(n => n.id === edge.source);
+      const b = graphNodes.find(n => n.id === edge.target);
+      if (!a || !b) return;
+      let dx = b.x - a.x, dy = b.y - a.y;
+      let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const str = edge.type === 'group' ? 0.9 : edge.type === 'post' ? 0.5 : 0.2;
+      const force = dist * dist / k * str * temp;
+      a.vx += dx / dist * force; a.vy += dy / dist * force;
+      b.vx -= dx / dist * force; b.vy -= dy / dist * force;
+    });
+
+    // 中心引力 + 阻尼
+    graphNodes.forEach(n => {
+      n.vx += (cx - n.x) * 0.001 * temp;
+      n.vy += (cy - n.y) * 0.001 * temp;
+      n.vx *= 0.85; n.vy *= 0.85;
+      n.x += Math.min(Math.abs(n.vx), 50) * Math.sign(n.vx);
+      n.y += Math.min(Math.abs(n.vy), 50) * Math.sign(n.vy);
+      n.x = Math.max(25, Math.min(w - 25, n.x));
+      n.y = Math.max(25, Math.min(h - 25, n.y));
+    });
+  }
+
+  graphDirty = false;
+}
+
+/** 渲染图谱 */
+function renderGraph() {
+  const ctx = graphCanvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = graphCanvas.width / dpr;
+  const h = graphCanvas.height / dpr;
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.save();
+  ctx.translate(graphOffsetX, graphOffsetY);
+  ctx.scale(graphScale, graphScale);
+
+  // 边
+  graphEdges.forEach(edge => {
+    const a = graphNodes.find(n => n.id === edge.source);
+    const b = graphNodes.find(n => n.id === edge.target);
+    if (!a || !b) return;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    if (edge.type === 'group') {
+      ctx.strokeStyle = 'rgba(232, 56, 79, 0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([]);
+    } else if (edge.type === 'post') {
+      ctx.strokeStyle = 'rgba(180, 160, 140, 0.35)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+    } else {
+      ctx.strokeStyle = 'rgba(180, 160, 140, 0.2)';
+      ctx.lineWidth = 0.8;
+      ctx.setLineDash([2, 6]);
+    }
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+
+  // 节点
+  graphNodes.forEach(node => {
+    const isHovered = graphHoveredNode === node;
+    const isSelected = graphSelectedNode === node;
+    const r = isHovered ? node.radius * 1.3 : node.radius;
+
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = node.color;
+    ctx.fill();
+
+    if (isSelected) {
+      ctx.strokeStyle = '#e8384f';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    } else if (isHovered) {
+      ctx.strokeStyle = 'rgba(232,56,79,0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = '#4a4036';
+    ctx.font = Math.max(9, node.radius * 0.7) + 'px sans-serif';
+    ctx.textAlign = 'center';
+    const label = node.label.length > 5 ? node.label.slice(0, 4) + '…' : node.label;
+    ctx.fillText(label, node.x, node.y + r + 12);
+  });
+
+  ctx.restore();
+}
+
+/** 屏幕坐标 → 图谱坐标 */
+function screenToGraph(e) {
+  const rect = graphCanvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left - graphOffsetX) / graphScale,
+    y: (e.clientY - rect.top - graphOffsetY) / graphScale
+  };
+}
+
+/** 命中检测 */
+function hitTestNode(gx, gy) {
+  for (const node of graphNodes) {
+    const dx = gx - node.x, dy = gy - node.y;
+    if (dx * dx + dy * dy < (node.radius + 5) ** 2) return node;
+  }
+  return null;
+}
+
+/** 显示节点详情浮层 */
+function showGraphDetailPopup(node) {
+  graphDetailAuthor.textContent = node.label;
+  graphDetailText.textContent = node.data.text;
+  graphDetailPost.innerHTML = node.data.postUrl
+    ? '<a class="comment-card-link" href="' + escapeHtml(node.data.postUrl) + '" target="_blank">查看原帖</a>'
+    : '';
+  graphDetailPopup.classList.remove('hidden');
+}
+
+/** 构建并渲染图谱 */
+function buildAndRenderGraph() {
+  if (currentCategory === '全部') {
+    showGraphPlaceholderState();
+    return;
+  }
+  buildGraphData();
+  if (graphNodes.length < 3) {
+    graphEmpty.classList.remove('hidden');
+    graphPlaceholder.classList.add('hidden');
+    graphCanvas.classList.add('hidden');
+    graphLegend.classList.add('hidden');
+    return;
+  }
+  graphEmpty.classList.add('hidden');
+  graphPlaceholder.classList.add('hidden');
+  graphCanvas.classList.remove('hidden');
+  graphLegend.classList.remove('hidden');
+  resizeGraphCanvas();
+  runForceLayout(100);
+  renderGraph();
+}
+
+/** 显示图谱占位状态 */
+function showGraphPlaceholderState() {
+  graphEmpty.classList.add('hidden');
+  graphPlaceholder.classList.remove('hidden');
+  graphCanvas.classList.add('hidden');
+  graphLegend.classList.add('hidden');
+  graphTooltip.classList.add('hidden');
+  graphDetailPopup.classList.add('hidden');
+}
+
+/* ===== 多视图管理 ===== */
+
+/** 切换视图 */
+function switchGraphView(viewName) {
+  currentGraphView = viewName;
+  // 更新按钮 active 态
+  document.querySelectorAll('.view-switch-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.view === viewName);
+  });
+  // 更新标题
+  const titles = { river: '🌊 河流图', grid: '📊 网格图', dashboard: '📈 成长仪表盘', graph: '🔗 关系图谱' };
+  graphViewTitle.textContent = titles[viewName] || '关系图谱';
+
+  // 隐藏所有视图
+  riverCanvas.classList.add('hidden');
+  riverLegend.classList.add('hidden');
+  gridCanvas.classList.add('hidden');
+  gridTooltip.classList.add('hidden');
+  dashboardContainer.classList.add('hidden');
+  graphCanvas.classList.add('hidden');
+  graphTooltip.classList.add('hidden');
+  graphDetailPopup.classList.add('hidden');
+  graphEmpty.classList.add('hidden');
+  graphPlaceholder.classList.add('hidden');
+  graphLegend.classList.add('hidden');
+
+  // 显示当前视图
+  switch (viewName) {
+    case 'river':
+      riverCanvas.classList.remove('hidden');
+      riverLegend.classList.remove('hidden');
+      break;
+    case 'grid':
+      gridCanvas.classList.remove('hidden');
+      break;
+    case 'dashboard':
+      dashboardContainer.classList.remove('hidden');
+      break;
+    case 'graph':
+      graphLegend.classList.remove('hidden');
+      break;
+  }
+
+  renderCurrentView();
+}
+
+/** 渲染当前视图 */
+function renderCurrentView() {
+  switch (currentGraphView) {
+    case 'river': renderRiverView(); break;
+    case 'grid': renderGridView(); break;
+    case 'dashboard': renderDashboardView(); break;
+    case 'graph': buildAndRenderGraph(); break;
+  }
+}
+
+/* ===== 河流图 ===== */
+
+/** 分类马卡龙色板（与 CSS 的 cat-macaron-* 对应） */
+const CAT_COLORS = [
+  '#f4a8b4', '#f7c59f', '#a8d8b9', '#a0c4e8', '#d4b8e0',
+  '#f9d89c', '#b8d4e3', '#e8c4a0', '#c4d4b0', '#e0b8c8',
+  '#f0c8a0', '#c8d0e8'
+];
+
+/** 为分类分配颜色 */
+function getCatColor(catIndex) {
+  return CAT_COLORS[catIndex % CAT_COLORS.length];
+}
+
+/** 河流图状态 */
+let riverHiddenCats = new Set();      // 隐藏的分类
+let riverHoveredCat = null;          // hover 的分类名
+
+/** 构建河流图数据 */
+function buildRiverData() {
+  if (comments.length === 0) return null;
+
+  const timestamps = comments.map(c => c.savedAt).filter(t => t);
+  if (timestamps.length === 0) return null;
+
+  const minTs = Math.min(...timestamps);
+  const maxTs = Math.max(...timestamps);
+
+  // 生成月份序列
+  const months = [];
+  const start = new Date(new Date(minTs).getFullYear(), new Date(minTs).getMonth(), 1);
+  const end = new Date(new Date(maxTs).getFullYear(), new Date(maxTs).getMonth(), 1);
+  let cur = new Date(start);
+  while (cur <= end) {
+    months.push({ year: cur.getFullYear(), month: cur.getMonth(), ts: cur.getTime() });
+    cur.setMonth(cur.getMonth() + 1);
+  }
+
+  // 统计每月每分类数量
+  const activeCats = [];
+  const catSet = new Set();
+  comments.forEach(c => { if (!catSet.has(c.category)) { catSet.add(c.category); activeCats.push(c.category); } });
+
+  // monthCounts[catIndex][monthIndex] = count
+  const monthCounts = activeCats.map(() => new Array(months.length).fill(0));
+  comments.forEach(c => {
+    const ci = activeCats.indexOf(c.category);
+    const d = new Date(c.savedAt);
+    const mi = months.findIndex(m => m.year === d.getFullYear() && m.month === d.getMonth());
+    if (ci >= 0 && mi >= 0) monthCounts[ci][mi]++;
+  });
+
+  return { months, activeCats, monthCounts };
+}
+
+/** 调整河流图 Canvas 尺寸 */
+function resizeRiverCanvas() {
+  const rect = graphBody.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  if (rect.width === 0 || rect.height === 0) return;
+  // 留出底部图例的空间
+  riverCanvas.width = rect.width * dpr;
+  riverCanvas.height = (rect.height - 30) * dpr;
+  riverCanvas.style.width = rect.width + 'px';
+  riverCanvas.style.height = (rect.height - 30) + 'px';
+  const ctx = riverCanvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+/** 绘制河流图（堆叠面积图） */
+function drawRiver(data) {
+  const ctx = riverCanvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = riverCanvas.width / dpr;
+  const h = riverCanvas.height / dpr;
+  ctx.clearRect(0, 0, w, h);
+
+  const { months, activeCats, monthCounts } = data;
+  if (months.length < 1 || activeCats.length === 0) return;
+
+  const padLeft = 12;
+  const padRight = 12;
+  const padTop = 8;
+  const padBottom = 28;
+  const chartW = w - padLeft - padRight;
+  const chartH = h - padTop - padBottom;
+
+  // 计算总堆叠值用于比例缩放
+  const totals = months.map((_, mi) => {
+    let sum = 0;
+    activeCats.forEach((_, ci) => {
+      if (!riverHiddenCats.has(activeCats[ci])) sum += monthCounts[ci][mi];
+    });
+    return sum;
+  });
+  const maxTotal = Math.max(...totals, 1);
+
+  // 按类别顺序计算堆叠 Y
+  const calcStack = (mi) => {
+    const stack = [];
+    let yAcc = 0;
+    activeCats.forEach((cat, ci) => {
+      if (riverHiddenCats.has(cat)) { stack.push(null); return; }
+      const count = monthCounts[ci][mi];
+      const height = count / maxTotal * chartH;
+      stack.push({ y0: yAcc, y1: yAcc + height, count });
+      yAcc += height;
+    });
+    return stack;
+  };
+
+  // 绘制各分类河流（从下往上）
+  const monthXs = months.map((_, mi) => padLeft + chartW * mi / Math.max(months.length - 1, 1));
+
+  activeCats.forEach((cat, ci) => {
+    if (riverHiddenCats.has(cat)) return;
+
+    const catIdx = categories.indexOf(cat);
+    const color = catIdx >= 0 ? getCatColor(catIdx) : '#c4d4b0';
+    const isHovered = riverHoveredCat === cat;
+    const alpha = riverHoveredCat && !isHovered ? 0.25 : 0.7;
+
+    // 构建上边界点
+    const topPoints = [];
+    const bottomPoints = [];
+    for (let mi = 0; mi < months.length; mi++) {
+      const stack = calcStack(mi);
+      const layer = stack[ci];
+      if (layer) {
+        topPoints.push({ x: monthXs[mi], y: padTop + chartH - layer.y0 });
+        bottomPoints.push({ x: monthXs[mi], y: padTop + chartH - layer.y1 });
+      }
+    }
+
+    if (topPoints.length < 2) return;
+
+    // 绘制填充区域
+    ctx.beginPath();
+    ctx.moveTo(topPoints[0].x, topPoints[0].y);
+    for (let i = 0; i < topPoints.length - 1; i++) {
+      const cx1 = topPoints[i].x + (topPoints[i + 1].x - topPoints[i].x) / 3;
+      const cx2 = topPoints[i].x + (topPoints[i + 1].x - topPoints[i].x) * 2 / 3;
+      ctx.bezierCurveTo(cx1, topPoints[i].y, cx2, topPoints[i + 1].y, topPoints[i + 1].x, topPoints[i + 1].y);
+    }
+    // 底边界从右往左
+    for (let i = bottomPoints.length - 1; i >= 1; i--) {
+      const cx1 = bottomPoints[i].x - (bottomPoints[i].x - bottomPoints[i - 1].x) / 3;
+      const cx2 = bottomPoints[i].x - (bottomPoints[i].x - bottomPoints[i - 1].x) * 2 / 3;
+      ctx.bezierCurveTo(cx1, bottomPoints[i].y, cx2, bottomPoints[i - 1].y, bottomPoints[i - 1].x, bottomPoints[i - 1].y);
+    }
+    ctx.closePath();
+
+    ctx.fillStyle = color.replace(')', ', ' + alpha + ')').replace('rgb', 'rgba');
+    if (color.startsWith('#')) {
+      const rgb = hexToRgb(color);
+      ctx.fillStyle = 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',' + alpha + ')';
+    }
+    ctx.fill();
+
+    // 上边界线
+    ctx.strokeStyle = color;
+    ctx.lineWidth = isHovered ? 2 : 1;
+    ctx.beginPath();
+    ctx.moveTo(topPoints[0].x, topPoints[0].y);
+    for (let i = 0; i < topPoints.length - 1; i++) {
+      const cx1 = topPoints[i].x + (topPoints[i + 1].x - topPoints[i].x) / 3;
+      const cx2 = topPoints[i].x + (topPoints[i + 1].x - topPoints[i].x) * 2 / 3;
+      ctx.bezierCurveTo(cx1, topPoints[i].y, cx2, topPoints[i + 1].y, topPoints[i + 1].x, topPoints[i + 1].y);
+    }
+    ctx.stroke();
+  });
+
+  // X 轴标签
+  ctx.fillStyle = '#8c7d6c';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'center';
+  const labelStep = Math.max(1, Math.floor(months.length / 8));
+  months.forEach((m, i) => {
+    if (i % labelStep === 0 || i === months.length - 1) {
+      const label = (m.month + 1) + '月';
+      ctx.fillText(label, monthXs[i], h - 6);
+    }
+  });
+
+  // Y 轴参考线
+  ctx.strokeStyle = 'rgba(0,0,0,0.05)';
+  ctx.lineWidth = 0.5;
+  for (let i = 1; i <= 3; i++) {
+    const y = padTop + chartH * i / 4;
+    ctx.beginPath();
+    ctx.moveTo(padLeft, y);
+    ctx.lineTo(w - padRight, y);
+    ctx.stroke();
+  }
+
+  // 存储数据用于 hover 检测
+  riverCanvas._riverData = { data, monthXs, padTop, padLeft, chartW, chartH, w, h, calcStack };
+}
+
+/** 渲染河流图图例 */
+function renderRiverLegend(data) {
+  riverLegend.innerHTML = '';
+  data.activeCats.forEach((cat, ci) => {
+    const catIdx = categories.indexOf(cat);
+    const color = catIdx >= 0 ? getCatColor(catIdx) : '#c4d4b0';
+
+    const item = document.createElement('span');
+    item.className = 'river-legend-item';
+    if (riverHiddenCats.has(cat)) item.classList.add('hidden-cat');
+
+    const swatch = document.createElement('span');
+    swatch.className = 'river-legend-swatch';
+    swatch.style.background = color;
+
+    item.appendChild(swatch);
+    item.appendChild(document.createTextNode(cat));
+
+    item.addEventListener('click', () => {
+      if (riverHiddenCats.has(cat)) {
+        riverHiddenCats.delete(cat);
+      } else {
+        riverHiddenCats.add(cat);
+      }
+      renderRiverLegend(data);
+      drawRiver(data);
+    });
+
+    item.addEventListener('mouseenter', () => {
+      riverHoveredCat = cat;
+      drawRiver(data);
+    });
+    item.addEventListener('mouseleave', () => {
+      riverHoveredCat = null;
+      drawRiver(data);
+    });
+
+    riverLegend.appendChild(item);
+  });
+}
+
+/** 渲染河流图 */
+function renderRiverView() {
+  resizeRiverCanvas();
+  const data = buildRiverData();
+  if (!data || data.months.length < 1) {
+    const ctx = riverCanvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const w = riverCanvas.width / dpr;
+    const h = riverCanvas.height / dpr;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#8c7d6c';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('暂无足够数据', w / 2, h / 2);
+    riverLegend.innerHTML = '';
+    return;
+  }
+  if (data.months.length === 1) {
+    const ctx = riverCanvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const w = riverCanvas.width / dpr;
+    const h = riverCanvas.height / dpr;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#8c7d6c';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('数据仅在一个月内，趋势待积累', w / 2, h / 2);
+    renderRiverLegend(data);
+    return;
+  }
+  renderRiverLegend(data);
+  drawRiver(data);
+}
+
+/* ===== 网格图 ===== */
+
+/** 获取某天的 ISO 周起始日期（周一）的 timestamp */
+function getWeekStart(ts) {
+  const d = new Date(ts);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // 周一
+  const monday = new Date(d.getFullYear(), d.getMonth(), diff);
+  monday.setHours(0, 0, 0, 0);
+  return monday.getTime();
+}
+
+/** 构建网格图数据 */
+function buildGridData() {
+  if (comments.length === 0) return null;
+
+  // 确定时间范围
+  const timestamps = comments.map(c => c.savedAt).filter(t => t);
+  if (timestamps.length === 0) return null;
+  const minTs = Math.min(...timestamps);
+  const maxTs = Math.max(...timestamps);
+
+  // 按周分桶
+  const weekStarts = [];
+  let ws = getWeekStart(minTs);
+  const lastWs = getWeekStart(maxTs);
+  while (ws <= lastWs) {
+    weekStarts.push(ws);
+    ws += 7 * 24 * 60 * 60 * 1000;
+  }
+
+  // 获取活跃分类（按总收藏量降序）
+  const catTotals = {};
+  comments.forEach(c => { catTotals[c.category] = (catTotals[c.category] || 0) + 1; });
+  const activeCats = Object.entries(catTotals)
+    .sort((a, b) => b[1] - a[1])
+    .map(([cat]) => cat);
+
+  if (activeCats.length === 0 || weekStarts.length === 0) return null;
+
+  // 构建矩阵：[catIndex][weekIndex] = count
+  const matrix = activeCats.map(() => new Array(weekStarts.length).fill(0));
+  let maxCount = 0;
+  comments.forEach(c => {
+    const catIdx = activeCats.indexOf(c.category);
+    const weekIdx = weekStarts.findIndex(ws => c.savedAt >= ws && c.savedAt < ws + 7 * 24 * 60 * 60 * 1000);
+    if (catIdx >= 0 && weekIdx >= 0) {
+      matrix[catIdx][weekIdx]++;
+      if (matrix[catIdx][weekIdx] > maxCount) maxCount = matrix[catIdx][weekIdx];
+    }
+  });
+
+  // 缩略月份标签
+  const monthLabels = weekStarts.map(ws => {
+    const d = new Date(ws);
+    return (d.getMonth() + 1) + '月';
+  });
+  // 去重相邻相同标签，只保留首次出现
+  const uniqueMonthLabels = monthLabels.map((lbl, i) =>
+    (i === 0 || lbl !== monthLabels[i - 1]) ? lbl : ''
+  );
+
+  return { weekStarts, activeCats, matrix, maxCount: Math.max(maxCount, 1), uniqueMonthLabels };
+}
+
+/** 调整网格图 Canvas 尺寸 */
+function resizeGridCanvas() {
+  const rect = graphBody.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  if (rect.width === 0 || rect.height === 0) return;
+  gridCanvas.width = rect.width * dpr;
+  gridCanvas.height = rect.height * dpr;
+  gridCanvas.style.width = rect.width + 'px';
+  gridCanvas.style.height = rect.height + 'px';
+  const ctx = gridCanvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+/** 绘制网格图 */
+function drawGrid(data) {
+  const ctx = gridCanvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = gridCanvas.width / dpr;
+  const h = gridCanvas.height / dpr;
+  ctx.clearRect(0, 0, w, h);
+
+  const { activeCats, weekStarts, matrix, maxCount } = data;
+
+  const leftPad = 58;  // 分类名宽度
+  const topPad = 10;
+  const bottomPad = 22;
+  const rightPad = 8;
+  const cellW = Math.min(16, (w - leftPad - rightPad) / weekStarts.length);
+  const cellH = Math.min(24, (h - topPad - bottomPad) / activeCats.length);
+  const cellGap = 2;
+
+  // 绘制行标签
+  ctx.fillStyle = '#4a4036';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'right';
+  activeCats.forEach((cat, i) => {
+    const y = topPad + i * (cellH + cellGap) + cellH / 2 + 3;
+    const displayName = cat.length > 4 ? cat.slice(0, 4) + '…' : cat;
+    ctx.fillText(displayName, leftPad - 6, y);
+  });
+
+  // 绘制列标签（月份，仅首次显示）
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#8c7d6c';
+  ctx.font = '10px sans-serif';
+  data.uniqueMonthLabels.forEach((lbl, i) => {
+    if (!lbl) return;
+    const x = leftPad + i * (cellW + cellGap) + cellW / 2;
+    if (x + cellW / 2 > w - rightPad) return;
+    ctx.fillText(lbl, x, h - 4);
+  });
+
+  // 绘制格子
+  activeCats.forEach((cat, ci) => {
+    const catIdx = categories.indexOf(cat);
+    const baseColor = catIdx >= 0 ? getCatColor(catIdx) : '#c4d4b0';
+
+    weekStarts.forEach((ws, wi) => {
+      const count = matrix[ci][wi];
+      const x = leftPad + wi * (cellW + cellGap);
+      const y = topPad + ci * (cellH + cellGap);
+      if (x + cellW > w - rightPad) return;
+
+      let fillColor;
+      if (count === 0) {
+        fillColor = '#f5f0e6';
+      } else {
+        const intensity = 0.15 + (count / maxCount) * 0.85;
+        fillColor = interpolateColor('#f5f0e6', baseColor, intensity);
+      }
+
+      ctx.fillStyle = fillColor;
+      ctx.beginPath();
+      roundRect(ctx, x, y, cellW, cellH, 3);
+      ctx.fill();
+    });
+  });
+
+  // 存储格子的布局数据用于 hit test
+  gridCanvas._gridLayout = { activeCats, weekStarts, matrix, leftPad, topPad, cellW, cellH, cellGap, rightPad, maxCount };
+}
+
+/** 简单颜色插值 */
+function interpolateColor(fromHex, toHex, t) {
+  const from = hexToRgb(fromHex);
+  const to = hexToRgb(toHex);
+  const r = Math.round(from.r + (to.r - from.r) * t);
+  const g = Math.round(from.g + (to.g - from.g) * t);
+  const b = Math.round(from.b + (to.b - from.b) * t);
+  return 'rgb(' + r + ',' + g + ',' + b + ')';
+}
+
+function hexToRgb(hex) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : { r: 0, g: 0, b: 0 };
+}
+
+/** Canvas 圆角矩形 */
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+/** 渲染网格图 */
+function renderGridView() {
+  resizeGridCanvas();
+  const data = buildGridData();
+  if (!data || data.weekStarts.length === 0) {
+    const ctx = gridCanvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const w = gridCanvas.width / dpr;
+    const h = gridCanvas.height / dpr;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#8c7d6c';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('暂无足够数据', w / 2, h / 2);
+    return;
+  }
+  drawGrid(data);
+}
+
+/* ===== 仪表盘 ===== */
+
+/** 渲染仪表盘 */
+function renderDashboardView() {
+  dashboardContainer.innerHTML = '';
+  if (comments.length === 0) {
+    dashboardContainer.innerHTML = '<div style="padding:40px;text-align:center;color:#8c7d6c;font-size:13px;">还没有收藏评论</div>';
+    return;
+  }
+  renderDashboardTopCats();
+  renderDashboardEmerging();
+  renderDashboardDormant();
+  renderDashboardTrend();
+}
+
+/** 本月活跃领域 Top 3 */
+function renderDashboardTopCats() {
+  const now = Date.now();
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
+  const thisMonth = comments.filter(c => c.savedAt >= monthStart && c.savedAt <= now);
+
+  const catCounts = {};
+  thisMonth.forEach(c => {
+    catCounts[c.category] = (catCounts[c.category] || 0) + 1;
+  });
+
+  const sorted = Object.entries(catCounts).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const maxCount = sorted.length > 0 ? sorted[0][1] : 1;
+
+  const card = document.createElement('div');
+  card.className = 'dashboard-card';
+
+  const title = document.createElement('div');
+  title.className = 'dashboard-card-title';
+  title.textContent = '本月活跃领域';
+  card.appendChild(title);
+
+  if (sorted.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'font-size:13px;color:#8c7d6c;';
+    empty.textContent = '本月暂无新收藏';
+    card.appendChild(empty);
+    dashboardContainer.appendChild(card);
+    return;
+  }
+
+  const catsRow = document.createElement('div');
+  catsRow.className = 'dashboard-top-cats';
+
+  sorted.forEach(([cat, count]) => {
+    const item = document.createElement('div');
+    item.className = 'dashboard-top-cat-item';
+
+    const catIdx = categories.indexOf(cat);
+    const color = getCatColor(catIdx >= 0 ? catIdx : 0);
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'dashboard-top-cat-name';
+    nameEl.textContent = cat;
+
+    const countEl = document.createElement('div');
+    countEl.className = 'dashboard-top-cat-count';
+    countEl.textContent = count + '条';
+
+    const bar = document.createElement('div');
+    bar.className = 'dashboard-top-cat-bar';
+    const fill = document.createElement('div');
+    fill.className = 'dashboard-top-cat-bar-fill';
+    fill.style.width = Math.round(count / maxCount * 100) + '%';
+    fill.style.background = color;
+    bar.appendChild(fill);
+
+    item.appendChild(nameEl);
+    item.appendChild(countEl);
+    item.appendChild(bar);
+    catsRow.appendChild(item);
+  });
+
+  card.appendChild(catsRow);
+  dashboardContainer.appendChild(card);
+}
+
+/** 新兴关注（14 天窗口，增长率最高） */
+function renderDashboardEmerging() {
+  const now = Date.now();
+  const DAY = 24 * 60 * 60 * 1000;
+  const recent14 = comments.filter(c => c.savedAt >= now - 14 * DAY);
+  const prev14 = comments.filter(c => c.savedAt >= now - 28 * DAY && c.savedAt < now - 14 * DAY);
+
+  const recentCounts = {};
+  recent14.forEach(c => { recentCounts[c.category] = (recentCounts[c.category] || 0) + 1; });
+
+  const prevCounts = {};
+  prev14.forEach(c => { prevCounts[c.category] = (prevCounts[c.category] || 0) + 1; });
+
+  // 找出增长率最高的分类（近期 ≥ 2 条，前期有基础但低于近期）
+  const emerging = [];
+  Object.keys(recentCounts).forEach(cat => {
+    const recent = recentCounts[cat];
+    const prev = prevCounts[cat] || 0;
+    if (recent >= 2 && recent > prev) {
+      const growth = prev > 0 ? Math.round((recent - prev) / prev * 100) : 100;
+      emerging.push({ cat, recent, prev, growth });
+    }
+  });
+  emerging.sort((a, b) => b.growth - a.growth);
+
+  const card = document.createElement('div');
+  card.className = 'dashboard-card';
+
+  const title = document.createElement('div');
+  title.className = 'dashboard-card-title';
+  title.textContent = '新兴关注（14 天）';
+  card.appendChild(title);
+
+  if (emerging.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'font-size:13px;color:#8c7d6c;';
+    empty.textContent = '暂无显著增长的新兴领域';
+    card.appendChild(empty);
+    dashboardContainer.appendChild(card);
+    return;
+  }
+
+  const top = emerging[0];
+  const body = document.createElement('div');
+  body.className = 'dashboard-emerging';
+  body.innerHTML = '<span class="dashboard-emerging-cat">' + escapeHtml(top.cat) + '</span>'
+    + ' 增长 <span class="dashboard-emerging-growth">+' + top.growth + '%</span>'
+    + '（近 14 天 ' + top.recent + ' 条 vs 前 14 天 ' + top.prev + ' 条）';
+
+  // 附该分类最近评论摘要
+  const catComments = comments.filter(c => c.category === top.cat).slice(-2);
+  if (catComments.length > 0) {
+    const quotes = document.createElement('div');
+    quotes.className = 'dashboard-emerging-quotes';
+    quotes.textContent = catComments.map(c =>
+      (c.author || '匿名') + '：' + c.text.slice(0, 50) + (c.text.length > 50 ? '...' : '')
+    ).join('\n');
+    body.appendChild(quotes);
+  }
+
+  card.appendChild(body);
+  dashboardContainer.appendChild(card);
+}
+
+/** 沉寂领域（30 天+ 无新收藏） */
+function renderDashboardDormant() {
+  const now = Date.now();
+  const DAY = 24 * 60 * 60 * 1000;
+  const recent30 = new Set(comments.filter(c => c.savedAt >= now - 30 * DAY).map(c => c.category));
+
+  const dormant = categories.filter(cat => cat !== '未分类' && !recent30.has(cat));
+
+  const card = document.createElement('div');
+  card.className = 'dashboard-card';
+
+  const title = document.createElement('div');
+  title.className = 'dashboard-card-title';
+  title.textContent = '沉寂领域（30 天+）';
+  card.appendChild(title);
+
+  if (dormant.length === 0) {
+    const none = document.createElement('div');
+    none.className = 'dashboard-dormant-none';
+    none.textContent = '所有领域都很活跃！';
+    card.appendChild(none);
+  } else {
+    const body = document.createElement('div');
+    body.className = 'dashboard-dormant';
+    dormant.forEach(cat => {
+      const tag = document.createElement('span');
+      tag.className = 'dashboard-dormant-tag';
+      tag.textContent = cat;
+      body.appendChild(tag);
+    });
+    card.appendChild(body);
+  }
+
+  dashboardContainer.appendChild(card);
+}
+
+/** 收藏趋势（近 6 个月迷你柱状图） */
+function renderDashboardTrend() {
+  const now = new Date();
+  const months = [];
+  for (let i = 5; i >= 0; i--) {
+    const m = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ year: m.getFullYear(), month: m.getMonth(), label: (m.getMonth() + 1) + '月' });
+  }
+
+  const monthlyCounts = months.map(m => {
+    return comments.filter(c => {
+      const d = new Date(c.savedAt);
+      return d.getFullYear() === m.year && d.getMonth() === m.month;
+    }).length;
+  });
+
+  const maxCount = Math.max(...monthlyCounts, 1);
+  const total = monthlyCounts.reduce((a, b) => a + b, 0);
+
+  const card = document.createElement('div');
+  card.className = 'dashboard-card';
+
+  const title = document.createElement('div');
+  title.className = 'dashboard-card-title';
+  title.textContent = '收藏趋势（近 6 个月）';
+  card.appendChild(title);
+
+  // 迷你柱状图
+  const barsRow = document.createElement('div');
+  barsRow.className = 'dashboard-trend';
+
+  monthlyCounts.forEach((count, i) => {
+    const bar = document.createElement('div');
+    bar.className = 'dashboard-trend-bar';
+    bar.style.height = Math.max(count / maxCount * 72, 3) + 'px';
+    bar.title = months[i].label + ': ' + count + '条';
+    barsRow.appendChild(bar);
+  });
+
+  card.appendChild(barsRow);
+
+  // 月份标签
+  const labelsRow = document.createElement('div');
+  labelsRow.className = 'dashboard-trend-label';
+  months.forEach(m => {
+    const lbl = document.createElement('span');
+    lbl.className = 'dashboard-trend-month';
+    lbl.textContent = m.label;
+    labelsRow.appendChild(lbl);
+  });
+  card.appendChild(labelsRow);
+
+  // 总结
+  const summary = document.createElement('div');
+  summary.className = 'dashboard-trend-summary';
+  const firstHalf = monthlyCounts.slice(0, 3).reduce((a, b) => a + b, 0);
+  const secondHalf = monthlyCounts.slice(3, 6).reduce((a, b) => a + b, 0);
+  let arrow = '→', cls = 'flat';
+  if (secondHalf > firstHalf) { arrow = '↑'; cls = 'up'; }
+  else if (secondHalf < firstHalf) { arrow = '↓'; cls = 'down'; }
+  summary.innerHTML = '近 3 个月 ' + secondHalf + ' 条 '
+    + '<span class="dashboard-trend-arrow ' + cls + '">' + arrow + '</span>'
+    + ' 前 3 个月 ' + firstHalf + ' 条';
+  card.appendChild(summary);
+
+  dashboardContainer.appendChild(card);
+}
+
+/* ===== 配置加载 ===== */
+
+/** 从 .env + apiconfig.json 加载配置 */
+async function loadApiConfig() {
+  try {
+    // 读取 .env 解析密钥
+    const envResp = await fetch('../.env');
+    const envText = await envResp.text();
+    const envVars = {};
+    envText.split('\n').forEach(line => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx === -1) return;
+      envVars[trimmed.slice(0, eqIdx).trim()] = trimmed.slice(eqIdx + 1).trim();
+    });
+
+    // 读取 apiconfig.json 解析参数
+    const jsonResp = await fetch('apiconfig.json');
+    const jsonConfig = await jsonResp.json();
+
+    const activeProvider = jsonConfig.activeProvider;
+    const providerConfig = jsonConfig.providers[activeProvider];
+    if (!providerConfig) {
+      console.warn('apiconfig.json 中未找到 activeProvider: ' + activeProvider);
+      return;
+    }
+
+    const apiKey = envVars[providerConfig.apiKeyRef] || '';
+    if (!apiKey) {
+      console.warn('.env 中未找到密钥: ' + providerConfig.apiKeyRef);
+    }
+
+    window.__apiConfig = {
+      provider: activeProvider,
+      apiKey,
+      baseUrl: providerConfig.baseUrl,
+      model: providerConfig.model
+    };
+  } catch (e) {
+    console.warn('API 配置加载失败: ' + e.message);
+  }
+}
+
+/* ========== 图谱事件处理 ========== */
+
+graphCanvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  const newScale = Math.min(3, Math.max(0.3, graphScale * delta));
+  const rect = graphCanvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  graphOffsetX = mx - (mx - graphOffsetX) * (newScale / graphScale);
+  graphOffsetY = my - (my - graphOffsetY) * (newScale / graphScale);
+  graphScale = newScale;
+  renderGraph();
+});
+
+graphCanvas.addEventListener('mousedown', (e) => {
+  const pos = screenToGraph(e);
+  const node = hitTestNode(pos.x, pos.y);
+  if (node) {
+    graphDraggingNode = node;
+    graphSelectedNode = node;
+    showGraphDetailPopup(node);
+    renderGraph();
+  } else {
+    graphPanning = true;
+    graphSelectedNode = null;
+    graphDetailPopup.classList.add('hidden');
+    renderGraph();
+  }
+  graphLastX = e.clientX;
+  graphLastY = e.clientY;
+});
+
+graphCanvas.addEventListener('mousemove', (e) => {
+  const pos = screenToGraph(e);
+  if (graphDraggingNode) {
+    graphDraggingNode.x = pos.x;
+    graphDraggingNode.y = pos.y;
+    renderGraph();
+  } else if (graphPanning) {
+    graphOffsetX += e.clientX - graphLastX;
+    graphOffsetY += e.clientY - graphLastY;
+    graphLastX = e.clientX;
+    graphLastY = e.clientY;
+    renderGraph();
+  } else {
+    const node = hitTestNode(pos.x, pos.y);
+    if (node !== graphHoveredNode) {
+      graphHoveredNode = node;
+      if (node) {
+        graphTooltip.textContent = node.label + ': ' + node.data.text.slice(0, 30) + '...';
+        graphTooltip.classList.remove('hidden');
+        const rect = graphCanvas.getBoundingClientRect();
+        graphTooltip.style.left = (e.clientX - rect.left + 14) + 'px';
+        graphTooltip.style.top = (e.clientY - rect.top - 14) + 'px';
+      } else {
+        graphTooltip.classList.add('hidden');
+      }
+      renderGraph();
+    }
+  }
+});
+
+document.addEventListener('mouseup', () => {
+  graphDraggingNode = null;
+  graphPanning = false;
+});
+
+graphDetailClose.addEventListener('click', () => {
+  graphDetailPopup.classList.add('hidden');
+  graphSelectedNode = null;
+  renderGraph();
+});
+
+/* ========== 视图切换按钮事件 ========== */
+document.querySelectorAll('.view-switch-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchGraphView(btn.dataset.view));
+});
+
+/* ========== 网格图 hover 事件 ========== */
+gridCanvas.addEventListener('mousemove', (e) => {
+  const layout = gridCanvas._gridLayout;
+  if (!layout) return;
+  const rect = gridCanvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const { activeCats, weekStarts, matrix, leftPad, topPad, cellW, cellH, cellGap } = layout;
+
+  const wi = Math.floor((mx - leftPad) / (cellW + cellGap));
+  const ci = Math.floor((my - topPad) / (cellH + cellGap));
+
+  if (ci >= 0 && ci < activeCats.length && wi >= 0 && wi < weekStarts.length) {
+    const count = matrix[ci][wi];
+    const ws = new Date(weekStarts[wi]);
+    const we = new Date(weekStarts[wi] + 6 * 24 * 60 * 60 * 1000);
+    const fmt = d => (d.getMonth() + 1) + '/' + d.getDate();
+    gridTooltip.textContent = activeCats[ci] + ' · ' + fmt(ws) + ' - ' + fmt(we) + ' · ' + count + '条';
+    gridTooltip.classList.remove('hidden');
+    gridTooltip.style.left = Math.min(mx + 12, rect.width - 150) + 'px';
+    gridTooltip.style.top = Math.max(0, my - 30) + 'px';
+  } else {
+    gridTooltip.classList.add('hidden');
+  }
+});
+
+gridCanvas.addEventListener('mouseleave', () => {
+  gridTooltip.classList.add('hidden');
+});
+
+window.addEventListener('resize', () => {
+  if (currentGraphView === 'graph') {
+    if (graphNodes.length >= 3 && graphCanvas.style.display !== 'none') {
+      resizeGraphCanvas();
+      renderGraph();
+    }
+  } else if (currentGraphView === 'river') {
+    renderRiverView();
+  } else if (currentGraphView === 'grid') {
+    renderGridView();
+  }
+});
+
+/* ========== AI 总结按钮事件 ========== */
+btnSummaryEdit.addEventListener('click', () => {
+  if (currentCategory === '全部') return;
+  if (summaryGenerating) return;
+  if (summaryEditMode) {
+    flushAutoSave();
+    exitSummaryEdit();
+  } else {
+    enterSummaryEdit();
+  }
+});
+
+btnSummaryAi.addEventListener('click', () => {
+  if (currentCategory === '全部') return;
+  if (summaryGenerating) return;
+  if (summaryEditMode) {
+    if (!confirm('AI 生成将覆盖当前编辑内容，确定继续？')) return;
+  }
+  aiGenerateSummary();
+});
+
+btnSummaryExport.addEventListener('click', () => {
+  if (currentCategory === '全部') return;
+  exportSummaryMd();
+});
+
+// 编辑区输入 → 自动保存
+summaryEditor.addEventListener('input', () => {
+  autoSaveSummary();
+});
 
 /* 事件绑定 */
 
@@ -1613,16 +3312,26 @@ function showResultModal(title, body, onOk) {
   resultModalTitle.textContent = title;
   resultModalBody.textContent = body;
   resultModal.classList.remove('hidden');
-  btnResultModalOk.focus();
-  btnResultModalOk._onOk = onOk || null;
+  const okBtn = document.getElementById('btn-result-modal-ok');
+  if (okBtn) {
+    okBtn.focus();
+    okBtn._onOk = onOk || null;
+  }
 }
 
 // 关闭结果弹窗
 function closeResultModal() {
-  const onOk = btnResultModalOk._onOk;
+  const okBtn = document.getElementById('btn-result-modal-ok');
+  const onOk = okBtn ? okBtn._onOk : null;
   resultModal.classList.add('hidden');
-  btnResultModalOk._onOk = null;
-  if (onOk) onOk();
+  if (onOk && typeof onOk === 'function') {
+    if (okBtn) okBtn._onOk = null;
+    onOk();
+  }
+  // 若按钮已被 API 错误弹窗替换，恢复默认按钮
+  if (!document.getElementById('btn-result-modal-ok')) {
+    restoreResultModalButtons();
+  }
 }
 
 // 结果弹窗 — 确定
@@ -1648,7 +3357,7 @@ importFile.addEventListener('change', () => {
 // 全局点击：关闭所有分类下拉面板
 document.addEventListener('click', closeAllDropdowns);
 
-// 全局 Esc：按优先级关闭弹窗：清空 > 评论删除 > 分类删除 > 取消内联编辑
+// 全局 Esc：按优先级关闭弹窗：清空 > 评论删除 > 分类删除 > 导入结果 > API 配置 > 取消内联编辑
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (!clearModal.classList.contains('hidden')) {
