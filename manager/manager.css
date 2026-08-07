@@ -1579,6 +1579,8 @@ body {
 
 /* ===== 仪表盘 ===== */
 #dashboard-container {
+  position: absolute;
+  inset: 0;
   padding: 16px;
   overflow-y: auto;
   display: flex;
