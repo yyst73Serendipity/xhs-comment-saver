@@ -2655,8 +2655,9 @@ function resizeGridCanvas(data) {
   const dpr = window.devicePixelRatio || 1;
   if (rect.width === 0 || rect.height === 0) return;
 
-  const minW = data ? Math.max(rect.width, data.weekStarts.length * 18 + 70) : rect.width;
-  const minH = data ? Math.max(rect.height, data.activeCats.length * 26 + 50) : rect.height;
+  const cellW = 16, cellH = 24, cellGap = 2;
+  const minW = data ? Math.max(rect.width, 58 + 8 + data.weekStarts.length * (cellW + cellGap) - cellGap) : rect.width;
+  const minH = data ? Math.max(rect.height, 10 + 30 + data.activeCats.length * (cellH + cellGap) - cellGap) : rect.height;
 
   gridCanvas.width = minW * dpr;
   gridCanvas.height = minH * dpr;
@@ -2680,16 +2681,24 @@ function drawGrid(data) {
   const topPad = 10;
   const bottomPad = 30;  // 留空间给竖排日期标签
   const rightPad = 8;
-  const cellW = Math.min(16, (w - leftPad - rightPad) / weekStarts.length);
-  const cellH = Math.min(24, (h - topPad - bottomPad) / activeCats.length);
+  const cellW = 16;  // 固定格子宽度，多余空间留为空白或在 resize 时缩小
+  const cellH = 24;  // 固定格子高度
   const cellGap = 2;
+
+  // 如果数据少、Canvas 刚好填满容器，则放大格子填满
+  const availW = w - leftPad - rightPad;
+  const availH = h - topPad - bottomPad;
+  const fitW = availW / weekStarts.length;
+  const fitH = availH / activeCats.length;
+  const actualCellW = fitW > cellW + cellGap ? fitW - cellGap : cellW;
+  const actualCellH = fitH > cellH + cellGap ? fitH - cellGap : cellH;
 
   // 绘制行标签
   ctx.fillStyle = '#4a4036';
   ctx.font = '11px sans-serif';
   ctx.textAlign = 'right';
   activeCats.forEach((cat, i) => {
-    const y = topPad + i * (cellH + cellGap) + cellH / 2 + 3;
+    const y = topPad + i * (actualCellH + cellGap) + actualCellH / 2 + 3;
     const displayName = cat.length > 4 ? cat.slice(0, 4) + '…' : cat;
     ctx.fillText(displayName, leftPad - 6, y);
   });
@@ -2702,8 +2711,8 @@ function drawGrid(data) {
   weekStarts.forEach((ws, i) => {
     const d = new Date(ws);
     const label = (d.getMonth() + 1) + '.' + d.getDate();
-    const x = leftPad + i * (cellW + cellGap) + cellW / 2;
-    if (x + cellW / 2 > w - rightPad) return;
+    const x = leftPad + i * (actualCellW + cellGap) + actualCellW / 2;
+    if (x + actualCellW / 2 > w - rightPad) return;
     // 竖排：逐字符绘制
     const chars = label.split('');
     const charH = 9;
@@ -2722,9 +2731,9 @@ function drawGrid(data) {
 
     weekStarts.forEach((ws, wi) => {
       const count = matrix[ci][wi];
-      const x = leftPad + wi * (cellW + cellGap);
-      const y = topPad + ci * (cellH + cellGap);
-      if (x + cellW > w - rightPad) return;
+      const x = leftPad + wi * (actualCellW + cellGap);
+      const y = topPad + ci * (actualCellH + cellGap);
+      if (x + actualCellW > w - rightPad) return;
 
       let fillColor;
       if (count === 0) {
@@ -2736,13 +2745,13 @@ function drawGrid(data) {
 
       ctx.fillStyle = fillColor;
       ctx.beginPath();
-      roundRect(ctx, x, y, cellW, cellH, 3);
+      roundRect(ctx, x, y, actualCellW, actualCellH, 3);
       ctx.fill();
     });
   });
 
   // 存储格子的布局数据用于 hit test
-  gridCanvas._gridLayout = { activeCats, weekStarts, matrix, leftPad, topPad, cellW, cellH, cellGap, rightPad };
+  gridCanvas._gridLayout = { activeCats, weekStarts, matrix, leftPad, topPad, actualCellW, actualCellH, cellGap, rightPad };
 }
 
 /** 简单颜色插值 */
@@ -3175,10 +3184,10 @@ gridCanvas.addEventListener('mousemove', (e) => {
   const rect = gridCanvas.getBoundingClientRect();
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
-  const { activeCats, weekStarts, matrix, leftPad, topPad, cellW, cellH, cellGap } = layout;
+  const { activeCats, weekStarts, matrix, leftPad, topPad, actualCellW, actualCellH, cellGap } = layout;
 
-  const wi = Math.floor((mx - leftPad) / (cellW + cellGap));
-  const ci = Math.floor((my - topPad) / (cellH + cellGap));
+  const wi = Math.floor((mx - leftPad) / (actualCellW + cellGap));
+  const ci = Math.floor((my - topPad) / (actualCellH + cellGap));
 
   if (ci >= 0 && ci < activeCats.length && wi >= 0 && wi < weekStarts.length) {
     const count = matrix[ci][wi];
