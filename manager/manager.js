@@ -2642,17 +2642,7 @@ function buildGridData() {
     }
   });
 
-  // 缩略月份标签
-  const monthLabels = weekStarts.map(ws => {
-    const d = new Date(ws);
-    return (d.getMonth() + 1) + '月';
-  });
-  // 去重相邻相同标签，只保留首次出现
-  const uniqueMonthLabels = monthLabels.map((lbl, i) =>
-    (i === 0 || lbl !== monthLabels[i - 1]) ? lbl : ''
-  );
-
-  return { weekStarts, activeCats, matrix, maxCount: Math.max(maxCount, 1), uniqueMonthLabels };
+  return { weekStarts, activeCats, matrix, maxCount: Math.max(maxCount, 1) };
 }
 
 /** 调整网格图 Canvas 尺寸 */
@@ -2680,7 +2670,7 @@ function drawGrid(data) {
 
   const leftPad = 58;  // 分类名宽度
   const topPad = 10;
-  const bottomPad = 22;
+  const bottomPad = 30;  // 留空间给竖排日期标签
   const rightPad = 8;
   const cellW = Math.min(16, (w - leftPad - rightPad) / weekStarts.length);
   const cellH = Math.min(24, (h - topPad - bottomPad) / activeCats.length);
@@ -2696,15 +2686,25 @@ function drawGrid(data) {
     ctx.fillText(displayName, leftPad - 6, y);
   });
 
-  // 绘制列标签（月份，仅首次显示）
-  ctx.textAlign = 'center';
+  // 绘制列标签（竖排，显示每周一的月.日）
   ctx.fillStyle = '#8c7d6c';
-  ctx.font = '10px sans-serif';
-  data.uniqueMonthLabels.forEach((lbl, i) => {
-    if (!lbl) return;
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  weekStarts.forEach((ws, i) => {
+    const d = new Date(ws);
+    const label = (d.getMonth() + 1) + '.' + d.getDate();
     const x = leftPad + i * (cellW + cellGap) + cellW / 2;
     if (x + cellW / 2 > w - rightPad) return;
-    ctx.fillText(lbl, x, h - 4);
+    // 竖排：逐字符绘制
+    const chars = label.split('');
+    const charH = 9;
+    const totalH = chars.length * charH;
+    let cy = h - bottomPad + 4 + (bottomPad - 6 - totalH) / 2;
+    chars.forEach(ch => {
+      cy += charH;
+      ctx.fillText(ch, x, cy);
+    });
   });
 
   // 绘制格子
@@ -2734,7 +2734,7 @@ function drawGrid(data) {
   });
 
   // 存储格子的布局数据用于 hit test
-  gridCanvas._gridLayout = { activeCats, weekStarts, matrix, leftPad, topPad, cellW, cellH, cellGap, rightPad, maxCount };
+  gridCanvas._gridLayout = { activeCats, weekStarts, matrix, leftPad, topPad, cellW, cellH, cellGap, rightPad };
 }
 
 /** 简单颜色插值 */
