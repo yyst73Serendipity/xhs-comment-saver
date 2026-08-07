@@ -3343,6 +3343,11 @@ resultModal.addEventListener('click', (e) => {
 });
 
 // 搜索输入
+searchInput.addEventListener('input', () => {
+  searchKeyword = searchInput.value.trim();
+  renderComments();
+  updateEmptyState();
+});
 
 // 导出按钮
 btnExport.addEventListener('click', exportData);
