@@ -2286,20 +2286,24 @@ function switchGraphView(viewName) {
   graphPlaceholder.classList.add('hidden');
   graphLegend.classList.add('hidden');
 
-  // 显示当前视图
+  // 显示当前视图 + 设置滚动行为
   switch (viewName) {
     case 'river':
       riverCanvas.classList.remove('hidden');
       riverLegend.classList.remove('hidden');
+      graphBody.style.overflow = 'auto';
       break;
     case 'grid':
       gridCanvas.classList.remove('hidden');
+      graphBody.style.overflow = 'auto';
       break;
     case 'dashboard':
       dashboardContainer.classList.remove('hidden');
+      graphBody.style.overflow = 'hidden';
       break;
     case 'graph':
       graphLegend.classList.remove('hidden');
+      graphBody.style.overflow = 'hidden';
       break;
   }
 
@@ -2371,16 +2375,20 @@ function buildRiverData() {
   return { months, activeCats, monthCounts };
 }
 
-/** 调整河流图 Canvas 尺寸 */
-function resizeRiverCanvas() {
+/** 调整河流图 Canvas 尺寸（根据数据计算最小尺寸，支持滚动） */
+function resizeRiverCanvas(data) {
   const rect = graphBody.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   if (rect.width === 0 || rect.height === 0) return;
-  // 留出底部图例的空间
-  riverCanvas.width = rect.width * dpr;
-  riverCanvas.height = (rect.height - 30) * dpr;
-  riverCanvas.style.width = rect.width + 'px';
-  riverCanvas.style.height = (rect.height - 30) + 'px';
+
+  // 根据数据计算最小尺寸
+  const minW = data ? Math.max(rect.width, data.months.length * 50 + 24) : rect.width;
+  const minH = data ? Math.max(rect.height - 30, data.activeCats.length * 30 + 80) : rect.height - 30;
+
+  riverCanvas.width = minW * dpr;
+  riverCanvas.height = minH * dpr;
+  riverCanvas.style.width = minW + 'px';
+  riverCanvas.style.height = minH + 'px';
   const ctx = riverCanvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
@@ -2558,8 +2566,8 @@ function renderRiverLegend(data) {
 
 /** 渲染河流图 */
 function renderRiverView() {
-  resizeRiverCanvas();
   const data = buildRiverData();
+  resizeRiverCanvas(data);
   if (!data || data.months.length < 1) {
     const ctx = riverCanvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
@@ -2645,15 +2653,19 @@ function buildGridData() {
   return { weekStarts, activeCats, matrix, maxCount: Math.max(maxCount, 1) };
 }
 
-/** 调整网格图 Canvas 尺寸 */
-function resizeGridCanvas() {
+/** 调整网格图 Canvas 尺寸（根据数据计算最小尺寸，支持滚动） */
+function resizeGridCanvas(data) {
   const rect = graphBody.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   if (rect.width === 0 || rect.height === 0) return;
-  gridCanvas.width = rect.width * dpr;
-  gridCanvas.height = rect.height * dpr;
-  gridCanvas.style.width = rect.width + 'px';
-  gridCanvas.style.height = rect.height + 'px';
+
+  const minW = data ? Math.max(rect.width, data.weekStarts.length * 18 + 70) : rect.width;
+  const minH = data ? Math.max(rect.height, data.activeCats.length * 26 + 50) : rect.height;
+
+  gridCanvas.width = minW * dpr;
+  gridCanvas.height = minH * dpr;
+  gridCanvas.style.width = minW + 'px';
+  gridCanvas.style.height = minH + 'px';
   const ctx = gridCanvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
@@ -2769,8 +2781,8 @@ function roundRect(ctx, x, y, w, h, r) {
 
 /** 渲染网格图 */
 function renderGridView() {
-  resizeGridCanvas();
   const data = buildGridData();
+  resizeGridCanvas(data);
   if (!data || data.weekStarts.length === 0) {
     const ctx = gridCanvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
