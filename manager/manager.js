@@ -65,7 +65,10 @@ const commentList = document.getElementById('comment-list');
 const emptyState = document.getElementById('empty-state');
 const totalCount = document.getElementById('total-count');
 const searchInput = document.getElementById('search-input');
-const sortSelect = document.getElementById('sort-select');
+const sortDropdown = document.getElementById('sort-dropdown');
+const sortTrigger = document.getElementById('sort-trigger');
+const sortTriggerText = sortTrigger.querySelector('.sort-trigger-text');
+const sortOptions = Array.from(document.querySelectorAll('.sort-dropdown-option'));
 const newCatInput = document.getElementById('new-cat-input');
 const inputCatName = document.getElementById('input-cat-name');
 const btnAddCat = document.getElementById('btn-add-cat');
@@ -549,6 +552,7 @@ function createCatDropdown(comment) {
 function closeAllDropdowns() {
   document.querySelectorAll('.cat-dropdown-panel.open').forEach(p => p.classList.remove('open'));
   document.querySelectorAll('.cat-dropdown-trigger.open').forEach(t => t.classList.remove('open'));
+  sortDropdown.classList.remove('open');
 }
 
 /**
@@ -3405,10 +3409,22 @@ searchInput.addEventListener('input', () => {
 // 导出按钮
 btnExport.addEventListener('click', exportData);
 
-// 排序下拉框 → 切换排序方式，重新渲染列表
-sortSelect.addEventListener('change', () => {
-  currentSort = sortSelect.value;
-  renderComments();
+// 排序下拉框 → 展开/收起
+sortTrigger.addEventListener('click', (e) => {
+  e.stopPropagation();
+  sortDropdown.classList.toggle('open');
+});
+
+// 排序选项 → 切换排序方式，更新触发器文案，重新渲染列表
+sortOptions.forEach(opt => {
+  opt.addEventListener('click', () => {
+    currentSort = opt.dataset.value;
+    sortOptions.forEach(o => o.classList.remove('selected'));
+    opt.classList.add('selected');
+    sortTriggerText.textContent = opt.textContent.replace('✓', '').trim();
+    sortDropdown.classList.remove('open');
+    renderComments();
+  });
 });
 
 // 导入按钮 → 触发文件选择

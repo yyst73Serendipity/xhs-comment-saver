@@ -105,10 +105,17 @@
             <span class="search-icon">🔍</span>
             <input type="text" class="search-input" id="search-input" placeholder="搜索收藏的评论...">
           </div>
-          <select class="sort-select" id="sort-select">
-            <option value="newest">最新收藏</option>
-            <option value="oldest">最早收藏</option>
-          </select>
+          <!-- 排序下拉框（自定义组件，替代原生 select） -->
+          <div class="sort-dropdown" id="sort-dropdown">
+            <button class="sort-dropdown-trigger" id="sort-trigger" type="button">
+              <span class="sort-trigger-text">最新收藏</span>
+              <span class="sort-dropdown-arrow"></span>
+            </button>
+            <div class="sort-dropdown-panel">
+              <button class="sort-dropdown-option selected" type="button" data-value="newest">最新收藏 <span class="sort-dropdown-check">✓</span></button>
+              <button class="sort-dropdown-option" type="button" data-value="oldest">最早收藏 <span class="sort-dropdown-check">✓</span></button>
+            </div>
+          </div>
         </div>
 
         <!-- 评论列表 -->
