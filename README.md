@@ -17,7 +17,7 @@
 
 **管理页**
 - 点击浏览器工具栏扩展图标，在新标签页打开独立管理页
-- 左侧分类栏（浅暖色毛玻璃风格）+ 中间评论卡片列表 + 右侧分析面板
+- 固定视口布局：左侧分类栏 + 中间评论卡片列表 + 右侧分析面板，标题栏/工具栏/侧栏/面板始终可见，仅评论列表滚动
 - 评论支持按分类筛选、关键词搜索（高亮匹配）和按收藏时间排序（最新/最早）
 - 评论组展开/折叠，查看同帖关联评论上下文（含图片、语音）
 - 收藏帖子 URL 自动规范化处理，去除临时查询参数，确保链接可访问
@@ -69,7 +69,7 @@ xhs-comment-saver/
 │   ├── manager.html              # 三栏布局页面结构
 │   ├── manager.css               # 视觉样式（v2 浅暖色 + 成长视图 + 仪表盘卡片）
 │   ├── manager.js                # 分类筛选、搜索高亮、笔记、AI 总结、四视图成长分析
-│   ├── apiconfig.js              # LLM API 提供商预设（Anthropic / OpenAI / 自定义）
+│   ├── apiconfig.js              # LLM API 提供商预设（Anthropic / OpenAI / MiniMax / DeepSeek）
 │   └── apiconfig.json            # 用户 API 配置（activeProvider、参数）
 ├── tests/                        # 测试文件
 │   └── storage.test.html         # 存储操作单元测试
@@ -98,7 +98,7 @@ xhs-comment-saver/
 ### 配置 AI 总结
 
 1. 复制 `.env.example` 为 `.env`，填入你的 API Key
-2. 编辑 `manager/apiconfig.json`，设置 `activeProvider`（anthropic / openai / custom）及对应参数
+2. 编辑 `manager/apiconfig.json`，设置 `activeProvider`（anthropic / openai / minimax / deepseek）及对应参数
 3. 在管理页选择分类后点击 🤖 即可生成 AI 总结
 
 ### 运行测试
