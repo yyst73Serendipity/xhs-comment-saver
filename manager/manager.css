@@ -35,6 +35,12 @@
   --radius-lg: 20px;
   --radius-xl: 12px;
   --radius-full: 999px;
+
+  /* 存储配额分段颜色 */
+  --quota-safe: #3aa655;      /* <80% 安全绿 */
+  --quota-warn: #f59e0b;      /* 80~95% 警告橙 */
+  --quota-danger: #e8384f;    /* >95% 危险红 */
+  --quota-track: #efe6d6;     /* 进度条轨道底色 */
 }
 
 body {
@@ -1741,6 +1747,45 @@ body {
 .dashboard-trend-arrow.up { color: var(--accent); }
 .dashboard-trend-arrow.down { color: #6b9080; }
 .dashboard-trend-arrow.flat { color: var(--text-muted); }
+
+/* ===== 存储配额条（页面底部 footer） ===== */
+.storage-quota-bar {
+  margin-top: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.storage-quota-track {
+  flex: 1;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--quota-track);
+  overflow: hidden;
+}
+
+.storage-quota-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--quota-safe);
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.storage-quota-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 分段档位：安全绿 / 警告橙 / 危险红 */
+.storage-quota-bar.level-warn .storage-quota-fill { background: var(--quota-warn); }
+.storage-quota-bar.level-warn .storage-quota-text { color: var(--quota-warn); font-weight: 600; }
+.storage-quota-bar.level-danger .storage-quota-fill { background: var(--quota-danger); }
+.storage-quota-bar.level-danger .storage-quota-text { color: var(--quota-danger); font-weight: 600; }
 
 /* ===== 响应式 ===== */
 @media (max-width: 1100px) {

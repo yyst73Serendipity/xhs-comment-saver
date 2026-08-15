@@ -120,6 +120,11 @@ const gridCanvas = document.getElementById('grid-canvas');
 const gridTooltip = document.getElementById('grid-tooltip');
 const dashboardContainer = document.getElementById('dashboard-container');
 
+/* ========== 存储配额 DOM 引用 ========== */
+const storageQuotaBar = document.getElementById('storage-quota-bar');
+const storageQuotaFill = document.getElementById('storage-quota-fill');
+const storageQuotaText = document.getElementById('storage-quota-text');
+
 /**
  * 去重：按 commentId 或 key 去除重复评论，保留最早保存的那条
  * @param {Array} list - 评论列表
@@ -188,6 +193,48 @@ function renderAll() {
   updateTotalCount();
   updateEmptyState();
   updateRightPanel();
+  updateStorageQuota();
+}
+
+/**
+ * 更新存储配额条
+ * 读取 storage.local 已用空间，按百分比分段变色：<80% 安全绿 / 80~95% 警告橙 / >95% 危险红
+ */
+async function updateStorageQuota() {
+  try {
+    const bytesInUse = await chrome.storage.local.getBytesInUse(null);
+    // 动态读取当前浏览器 storage.local 实际配额（老版本 5MB / 新版本 10MB）
+    const quotaBytes = chrome.storage.local.QUOTA_BYTES || (10 * 1024 * 1024);
+    const quotaMb = quotaBytes / (1024 * 1024);
+    const percent = (bytesInUse / quotaBytes) * 100;
+
+    // 用量 <1MB 用 KB 显示，避免小数据量被四舍五入成 0.0 MB
+    let usedText;
+    if (bytesInUse < 1024 * 1024) {
+      usedText = (bytesInUse / 1024).toFixed(1) + ' KB';
+    } else {
+      usedText = (bytesInUse / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    // 进度条至少占 1% 宽度，让非空存储有视觉反馈
+    const fillPercent = bytesInUse > 0 ? Math.max(percent, 1) : 0;
+    storageQuotaFill.style.width = Math.min(fillPercent, 100) + '%';
+
+    // 分段档位判断
+    let level = 'safe';
+    let tip = '';
+    if (percent > 95) {
+      level = 'danger';
+      tip = ' — 空间即将耗尽，请尽快导出清理';
+    } else if (percent >= 80) {
+      level = 'warn';
+      tip = ' — 空间即将用尽，建议导出后清理';
+    }
+    storageQuotaBar.className = 'storage-quota-bar level-' + level;
+    storageQuotaText.textContent = `本地存储 ${usedText} / ${quotaMb} MB (${percent.toFixed(0)}%)` + tip;
+  } catch (err) {
+    // getBytesInUse 失败时静默处理，不影响主流程
+  }
 }
 
 /**
