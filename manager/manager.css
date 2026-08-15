@@ -68,11 +68,25 @@ body {
 /* ===== 顶部栏 ===== */
 .header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
   gap: 14px;
   margin-bottom: 24px;
   padding-bottom: 18px;
   border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-shrink: 0;
 }
 
@@ -557,6 +571,37 @@ body {
   border-color: #f0a0a0;
   color: #e8384f;
   background: var(--accent-soft);
+}
+
+/* ===== 排序下拉框 ===== */
+.sort-select {
+  padding: 9px 32px 9px 14px;
+  border: 1.5px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  background: #fff;
+  color: var(--text-primary);
+  cursor: pointer;
+  outline: none;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238c7d6c' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+
+.sort-select:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.sort-select:focus {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-search);
 }
 
 /* ===== 评论列表 ===== */

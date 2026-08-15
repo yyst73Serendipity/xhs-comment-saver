@@ -8,6 +8,7 @@ let comments = [];
 let categories = [];
 let currentCategory = '全部';  // 当前选中的分类，「全部」表示显示所有
 let searchKeyword = '';        // 当前搜索关键词
+let currentSort = 'newest';    // 当前排序：'newest' 最新收藏 / 'oldest' 最早收藏
 let editingCategory = null;   // 当前正在内联编辑的分类名
 let pendingDeleteCommentId = null; // 待删除的评论 ID
 
@@ -64,6 +65,7 @@ const commentList = document.getElementById('comment-list');
 const emptyState = document.getElementById('empty-state');
 const totalCount = document.getElementById('total-count');
 const searchInput = document.getElementById('search-input');
+const sortSelect = document.getElementById('sort-select');
 const newCatInput = document.getElementById('new-cat-input');
 const inputCatName = document.getElementById('input-cat-name');
 const btnAddCat = document.getElementById('btn-add-cat');
@@ -435,8 +437,12 @@ function renderComments() {
     rendered.push({ type: 'single', data: c, time: c.savedAt });
   });
 
-  // 按时间倒序排列
-  rendered.sort((a, b) => b.time - a.time);
+  // 按收藏时间排序（组整体参与排序，组内顺序不变）
+  if (currentSort === 'oldest') {
+    rendered.sort((a, b) => a.time - b.time);
+  } else {
+    rendered.sort((a, b) => b.time - a.time);
+  }
 
   // 渲染
   rendered.forEach(item => {
@@ -3398,6 +3404,12 @@ searchInput.addEventListener('input', () => {
 
 // 导出按钮
 btnExport.addEventListener('click', exportData);
+
+// 排序下拉框 → 切换排序方式，重新渲染列表
+sortSelect.addEventListener('change', () => {
+  currentSort = sortSelect.value;
+  renderComments();
+});
 
 // 导入按钮 → 触发文件选择
 btnImport.addEventListener('click', () => importFile.click());
