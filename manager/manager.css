@@ -477,6 +477,19 @@ body {
   box-shadow: 0 4px 12px rgba(232, 56, 79, 0.3);
 }
 
+/* ===== 导入预览弹窗 ===== */
+.preview-body {
+  line-height: 2;
+}
+
+.preview-body .num {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.preview-body .num-add { color: var(--accent); }
+.preview-body .num-skip { color: var(--text-muted); }
+
 /* ===== 右侧内容 ===== */
 .content {
   flex: 1;

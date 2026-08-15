@@ -92,6 +92,10 @@ const resultModal = document.getElementById('result-modal');
 const resultModalTitle = document.getElementById('result-modal-title');
 const resultModalBody = document.getElementById('result-modal-body');
 const btnResultModalOk = document.getElementById('btn-result-modal-ok');
+const importPreviewModal = document.getElementById('import-preview-modal');
+const importPreviewBody = document.getElementById('import-preview-body');
+const btnPreviewCancel = document.getElementById('btn-preview-cancel');
+const btnPreviewConfirm = document.getElementById('btn-preview-confirm');
 
 /* ========== 右侧面板 DOM 引用 ========== */
 const rightPanel = document.getElementById('right-panel');
@@ -1619,24 +1623,66 @@ async function exportData() {
   URL.revokeObjectURL(url);
 }
 
+/** 待导入数据暂存（预览确认阶段使用） */
+let pendingImport = null;
+
 /**
- * 导入 JSON 文件，合并到当前存储中
+ * 导入 JSON 文件 —— 第一阶段：解析并预览
+ * 校验数据结构、计算新增分类/评论数与跳过重复数，弹出预览弹窗供用户确认
+ * @param {File} file
  */
 async function importData(file) {
+  let data;
   try {
     const text = await file.text();
-    const data = JSON.parse(text);
+    data = JSON.parse(text);
+  } catch (err) {
+    showResultModal('文件导入', '导入失败：文件内容无法解析');
+    return;
+  }
 
-    // 校验数据结构
-    if (!data.comments || !Array.isArray(data.comments)) {
-      showResultModal('文件导入', '导入失败：文件格式不正确，缺少评论数据');
-      return;
-    }
-    if (!data.categories || !Array.isArray(data.categories)) {
-      showResultModal('文件导入', '导入失败：文件格式不正确，缺少分类数据');
-      return;
-    }
+  // 校验数据结构
+  if (!data.comments || !Array.isArray(data.comments)) {
+    showResultModal('文件导入', '导入失败：文件格式不正确，缺少评论数据');
+    return;
+  }
+  if (!data.categories || !Array.isArray(data.categories)) {
+    showResultModal('文件导入', '导入失败：文件格式不正确，缺少分类数据');
+    return;
+  }
 
+  // 读取当前数据用于统计新增/重复
+  const current = await chrome.storage.local.get(['xhs_categories', 'xhs_comments']);
+  const currentCategories = current.xhs_categories || [];
+  const currentComments = current.xhs_comments || [];
+
+  const newCats = data.categories.filter(cat => !currentCategories.includes(cat));
+  const existingIds = new Set(currentComments.map(c => c.id));
+  const newComments = data.comments.filter(c => !existingIds.has(c.id));
+  const skipCount = data.comments.length - newComments.length;
+
+  // 组装预览文案（只列分类/评论/重复，不提总结）
+  importPreviewBody.innerHTML =
+    `文件共 <span class="num">${data.comments.length}</span> 条评论，确认后将合并到当前收藏。<br>` +
+    `🗂️ 将新增分类 <span class="num num-add">${newCats.length}</span> 个<br>` +
+    `📝 将新增评论 <span class="num num-add">${newComments.length}</span> 条<br>` +
+    `⏭️ 将跳过重复 <span class="num num-skip">${skipCount}</span> 条`;
+
+  pendingImport = data;
+  importPreviewModal.classList.remove('hidden');
+}
+
+/**
+ * 确认导入 —— 第二阶段：执行合并写入
+ * 分类去重、评论按 id 去重、总结不覆盖已有，完成后刷新页面
+ */
+async function confirmImport() {
+  const data = pendingImport;
+  if (!data) return;
+  importPreviewModal.classList.add('hidden');
+  pendingImport = null;
+
+  try {
     // 读取当前数据
     const current = await chrome.storage.local.get(['xhs_categories', 'xhs_comments', 'xhs_summaries']);
     const currentCategories = current.xhs_categories || [];
@@ -1669,7 +1715,7 @@ async function importData(file) {
 
     showResultModal('文件导入', `导入成功！新增 ${newCatCount} 个分类、${newComments.length} 条评论！`, () => location.reload());
   } catch (err) {
-    showResultModal('文件导入', `导入失败：文件内容无法解析（${err.message}）`);
+    showResultModal('文件导入', `导入失败：${err.message}`);
   }
 }
 
@@ -3362,6 +3408,23 @@ btnClearModalCancel.addEventListener('click', closeClearModal);
 // 清空弹窗 — 点击遮罩关闭
 clearModal.addEventListener('click', (e) => {
   if (e.target === clearModal) closeClearModal();
+});
+
+// 导入预览弹窗 — 取消
+btnPreviewCancel.addEventListener('click', () => {
+  importPreviewModal.classList.add('hidden');
+  pendingImport = null;
+});
+
+// 导入预览弹窗 — 确认导入
+btnPreviewConfirm.addEventListener('click', confirmImport);
+
+// 导入预览弹窗 — 点击遮罩关闭
+importPreviewModal.addEventListener('click', (e) => {
+  if (e.target === importPreviewModal) {
+    importPreviewModal.classList.add('hidden');
+    pendingImport = null;
+  }
 });
 
 // 显示导入/导出结果弹窗
