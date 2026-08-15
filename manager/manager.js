@@ -96,6 +96,7 @@ const importPreviewModal = document.getElementById('import-preview-modal');
 const importPreviewBody = document.getElementById('import-preview-body');
 const btnPreviewCancel = document.getElementById('btn-preview-cancel');
 const btnPreviewConfirm = document.getElementById('btn-preview-confirm');
+const toast = document.getElementById('toast');
 
 /* ========== 右侧面板 DOM 引用 ========== */
 const rightPanel = document.getElementById('right-panel');
@@ -1626,6 +1627,23 @@ async function exportData() {
 /** 待导入数据暂存（预览确认阶段使用） */
 let pendingImport = null;
 
+/** toast 自动消失计时器 */
+let toastTimer = null;
+
+/**
+ * 顶部提示 toast，2.5 秒后自动消失
+ * @param {string} message - 提示文案
+ * @param {string} type - 'success' 成功（绿）/ 'error' 失败（红）
+ */
+function showToast(message, type = 'success') {
+  toast.textContent = message;
+  toast.className = 'toast ' + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toast.className = 'toast hidden';
+  }, 2500);
+}
+
 /**
  * 导入 JSON 文件 —— 第一阶段：解析并预览
  * 校验数据结构、计算新增分类/评论数与跳过重复数，弹出预览弹窗供用户确认
@@ -1674,7 +1692,8 @@ async function importData(file) {
 
 /**
  * 确认导入 —— 第二阶段：执行合并写入
- * 分类去重、评论按 id 去重、总结不覆盖已有，完成后刷新页面
+ * 分类去重、评论按 id 去重、总结不覆盖已有
+ * 成功后直接更新内存状态并渲染显示评论，顶部 toast 提示
  */
 async function confirmImport() {
   const data = pendingImport;
@@ -1713,9 +1732,15 @@ async function confirmImport() {
       xhs_summaries: mergedSummaries
     });
 
-    showResultModal('文件导入', `导入成功！新增 ${newCatCount} 个分类、${newComments.length} 条评论！`, () => location.reload());
+    // 更新内存状态并渲染，评论直接显示
+    categories = mergedCategories;
+    comments = mergedComments;
+    summaries = mergedSummaries;
+    renderAll();
+
+    showToast(`导入成功，新增 ${newCatCount} 个分类、${newComments.length} 条评论`, 'success');
   } catch (err) {
-    showResultModal('文件导入', `导入失败：${err.message}`);
+    showToast('导入失败', 'error');
   }
 }
 

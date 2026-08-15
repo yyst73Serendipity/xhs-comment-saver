@@ -490,6 +490,30 @@ body {
 .preview-body .num-add { color: var(--accent); }
 .preview-body .num-skip { color: var(--text-muted); }
 
+/* ===== 顶部提示 toast ===== */
+.toast {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  padding: 12px 24px;
+  border-radius: var(--radius-full);
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(30, 20, 10, 0.18);
+  animation: toast-in 0.25s ease;
+  pointer-events: none;
+}
+.toast.success { background: var(--safe); }
+.toast.error { background: var(--danger); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, -12px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
 /* ===== 右侧内容 ===== */
 .content {
   flex: 1;
