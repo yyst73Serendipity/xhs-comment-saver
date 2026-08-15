@@ -41,6 +41,9 @@
   --quota-warn: #f59e0b;      /* 80~95% 警告橙 */
   --quota-danger: #e8384f;    /* >95% 危险红 */
   --quota-track: #efe6d6;     /* 进度条轨道底色 */
+  --safe: #3aa655;            /* 安全绿（正向动作 hover） */
+  --safe-soft: rgba(58, 166, 85, 0.10);
+  --danger: #d63333;          /* 危险红（破坏性动作） */
 }
 
 body {
@@ -530,7 +533,7 @@ body {
   box-shadow: var(--shadow-search);
 }
 
-/* 工具栏按钮 */
+/* 标题区操作按钮（方案C：仅危险项常驻带色） */
 .btn-export,
 .btn-import {
   padding: 9px 18px;
@@ -546,31 +549,37 @@ body {
   box-shadow: 0 1px 2px rgba(0,0,0,0.03);
 }
 
-.btn-export:hover,
+/* 导出：正向安全动作，hover 变绿 */
+.btn-export:hover {
+  border-color: var(--safe);
+  color: var(--safe);
+  background: var(--safe-soft);
+}
+
+/* 导入：正向安全动作，hover 变品牌红 */
 .btn-import:hover {
   border-color: var(--accent);
   color: var(--accent);
   background: var(--accent-soft);
 }
 
+/* 清空：破坏性动作，常驻红色幽灵按钮警示 */
 .btn-clear {
   padding: 9px 18px;
-  border: 1.5px solid var(--border-subtle);
+  border: 1.5px solid var(--danger);
   border-radius: var(--radius-full);
-  background: #fff;
-  color: var(--text-muted);
+  background: transparent;
+  color: var(--danger);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.18s ease;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
 }
 
 .btn-clear:hover {
-  border-color: #f0a0a0;
-  color: #e8384f;
-  background: var(--accent-soft);
+  background: var(--danger);
+  color: #fff;
 }
 
 /* ===== 排序下拉框（方案 B：白底胶囊 + 选中勾号） ===== */
