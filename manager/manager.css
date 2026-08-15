@@ -1401,7 +1401,8 @@ body {
 
 /* ===== AI 总结区 ===== */
 .panel-summary {
-  height: 350px;
+  flex: 4;
+  min-height: 0;
 }
 
 .panel-summary .panel-section-body {
@@ -1532,8 +1533,8 @@ body {
 
 /* ===== 成长视图区（共用） ===== */
 .panel-graph {
-  flex: 1;
-  min-height: 330px;
+  flex: 6;
+  min-height: 0;
 }
 
 .panel-graph .panel-section-body {
