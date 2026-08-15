@@ -1,0 +1,17 @@
+{
+  "activeProvider": "deepseek",
+  "providers": {
+    "minimax": {
+      "name": "MiniMax",
+      "baseUrl": "https://api.minimax.chat/v1/chat/completions",
+      "model": "MiniMax-M3",
+      "apiKeyRef": "MINIMAX_API_KEY"
+    },
+    "deepseek": {
+      "name": "DeepSeek",
+      "baseUrl": "https://api.deepseek.com/chat/completions",
+      "model": "deepseek-v4-flash",
+      "apiKeyRef": "DEEPSEEK_API_KEY"
+    }
+  }
+}
