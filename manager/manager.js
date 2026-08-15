@@ -1718,9 +1718,11 @@ async function confirmImport() {
       }
     });
 
-    // 合并评论（按 id 去重）
+    // 合并评论（按 id 去重，分类不在列表内的归到「未分类」）
     const existingIds = new Set(currentComments.map(c => c.id));
-    const newComments = data.comments.filter(c => !existingIds.has(c.id));
+    const newComments = data.comments
+      .filter(c => !existingIds.has(c.id))
+      .map(c => mergedCategories.includes(c.category) ? c : { ...c, category: '未分类' });
     const mergedComments = [...newComments, ...currentComments];
 
     // 合并 AI 总结（导入的总结不覆盖已有）
