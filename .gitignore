@@ -27,3 +27,6 @@ node_modules/
 
 # 草稿
 uidraft/
+
+# Codex 项目说明
+AGENTS.md
