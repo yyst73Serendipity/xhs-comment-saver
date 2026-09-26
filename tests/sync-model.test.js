@@ -211,6 +211,34 @@ test('并发 AI 总结保留本地版本作为冲突', () => {
   assert.equal(merged.conflicts[0].local, '本地总结');
 });
 
+test('并发清空笔记和总结会保留空字符串冲突版本', () => {
+  const comment = model.mergeOperation(record({ note: '设备 B' }, { revision: 2 }), {
+    id: 'clear-note', collection: 'comments', recordId: 'c', baseRevision: 1,
+    patch: { note: '' }, baseData: { note: '旧值' }
+  });
+  const summary = model.mergeOperation(record({ content: '设备 B 总结' }, { revision: 2 }), {
+    id: 'clear-summary', collection: 'summaries', recordId: 'good-things', baseRevision: 1,
+    patch: { content: '' }, baseData: { content: '旧总结' }
+  });
+
+  assert.equal(comment.data.note, '设备 B');
+  assert.equal(comment.conflicts[0].local, '');
+  assert.equal(summary.data.content, '设备 B 总结');
+  assert.equal(summary.conflicts[0].local, '');
+});
+
+test('访客清空总结会进入迁移预览并作为冲突版本上传', async () => {
+  const guest = await model.migrateLegacy([], ['未分类', '好物'], { 好物: { content: '' } });
+  const account = await model.migrateLegacy([], ['未分类', '好物'], { 好物: { content: '账号总结' } });
+
+  assert.equal(model.migrationPreview(guest, account).summaryConflicts, 1);
+  const merged = model.mergeGuest(guest, account);
+  const operation = merged.pending.find(item => item.collection === 'summaries');
+  const cloud = model.mergeOperation(account.remote.summaries['good-things'], operation);
+  assert.equal(cloud.data.content, '账号总结');
+  assert.equal(cloud.conflicts[0].local, '');
+});
+
 test('冲突文本截断到十万字符且最多保留五个版本', () => {
   let remote = record({ note: '云端' }, { revision: 2 });
   for (let index = 0; index < 7; index++) {
@@ -300,6 +328,55 @@ test('访客合并把新增数据与冲突内容放入账号操作队列', async
   assert.equal(model.mergeOperation(account.remote.comments['comment-1'], noteOp).conflicts[0].local, '本地');
   const summaryOp = result.pending.find(item => item.collection === 'summaries');
   assert.equal(model.mergeOperation(account.remote.summaries[summaryOp.recordId], summaryOp).conflicts[0].local, '本地总结');
+});
+
+test('访客重复评论补齐账号空字段但不覆盖账号非空字段', async () => {
+  const guest = await model.migrateLegacy([{
+    commentId: 'shared', text: '访客正文', author: '访客作者', postTitle: '帖子标题',
+    postUrl: 'https://www.xiaohongshu.com/explore/shared', images: ['https://img/guest'],
+    audio: 'https://audio/guest', groupId: 'guest-group', groupIndex: 0, key: 'guest-key',
+    category: '好物', note: '访客笔记'
+  }], ['未分类', '好物'], {});
+  const account = await model.migrateLegacy([{
+    commentId: 'shared', text: '账号正文', author: '账号作者', images: [], audio: '',
+    category: '未分类', note: '账号笔记'
+  }], ['未分类', '好物'], {});
+  account.remote.comments['comment-shared'].data.categoryId = '';
+
+  const merged = model.mergeGuest(guest, account);
+  const operation = merged.pending.find(item => item.collection === 'comments');
+  const visible = model.visibleRecords(merged).comments['comment-shared'];
+  const cloud = model.mergeOperation(account.remote.comments['comment-shared'], operation);
+
+  assert.equal(operation.patch.text, undefined);
+  assert.equal(operation.patch.author, undefined);
+  assert.equal(visible.data.text, '账号正文');
+  assert.equal(visible.data.author, '账号作者');
+  assert.equal(visible.data.postTitle, '帖子标题');
+  assert.equal(visible.data.postUrl, 'https://www.xiaohongshu.com/explore/shared');
+  assert.deepEqual(visible.data.images, ['https://img/guest']);
+  assert.equal(visible.data.audio, 'https://audio/guest');
+  assert.equal(visible.data.groupId, 'guest-group');
+  assert.equal(visible.data.groupIndex, 0);
+  assert.equal(visible.data.key, 'guest-key');
+  assert.equal(visible.data.categoryId, 'good-things');
+  assert.equal(cloud.conflicts.some(item => item.field === 'note' && item.local === '访客笔记'), true);
+});
+
+test('分类合并优先稳定 ID 且不会把账号重命名改回旧名称', async () => {
+  const guest = await model.migrateLegacy([
+    { commentId: 'category', text: '正文', category: '好物' }
+  ], ['未分类', '好物'], {});
+  const account = await model.migrateLegacy([], ['未分类', '好物'], {});
+  account.remote.categories['good-things'].data.name = '值得买';
+
+  const merged = model.mergeGuest(guest, account);
+  const categoryOperation = merged.pending.find(item => item.collection === 'categories' && item.recordId === 'good-things');
+  const commentOperation = merged.pending.find(item => item.collection === 'comments');
+
+  assert.equal(categoryOperation, undefined);
+  assert.equal(commentOperation.patch.categoryId, 'good-things');
+  assert.equal(model.visibleRecords(merged).categories['good-things'].data.name, '值得买');
 });
 
 test('重复旧笔记从预览到访客迁移确认后仍保留冲突', async () => {
