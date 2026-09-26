@@ -93,7 +93,7 @@ function validateTextBoundary(collection, patch) {
 }
 
 function legacyCommentData(source, categoryId) {
-  return {
+  const data = {
     commentId: source.commentId == null ? '' : String(source.commentId),
     text: typeof source.text === 'string' ? source.text : '',
     author: typeof source.author === 'string' ? source.author : '',
@@ -104,12 +104,13 @@ function legacyCommentData(source, categoryId) {
     groupId: source.groupId ?? null,
     groupIndex: Number.isFinite(source.groupIndex) ? source.groupIndex : null,
     categoryId,
-    note: typeof source.note === 'string' ? source.note : '',
-    savedAt: Number.isFinite(source.savedAt) ? source.savedAt : 0,
     ...(source.key == null ? {} : { key: source.key }),
     ...(source.id == null ? {} : { legacyId: source.id }),
     ...(source.key == null ? {} : { legacyKey: source.key })
   };
+  if (Object.hasOwn(source, 'note') && typeof source.note === 'string') data.note = source.note;
+  if (Number.isFinite(source.savedAt) && source.savedAt > 0) data.savedAt = source.savedAt;
+  return data;
 }
 
 function hasMigrationValue(value) {
@@ -182,7 +183,7 @@ export async function migrateLegacy(comments = [], categories = DEFAULT_CATEGORI
       if (!id || legacySummary == null) continue;
       try {
         const data = typeof legacySummary === 'string' ? { content: legacySummary } : clone(legacySummary);
-        if (typeof data.content !== 'string') data.content = '';
+        if (Object.hasOwn(data, 'content') && typeof data.content !== 'string') throw new Error('总结内容格式无效');
         validateTextBoundary('summaries', data);
         workspace.remote.summaries[id] = newRecord(data);
       } catch (error) {
@@ -244,6 +245,7 @@ export function project(workspace) {
     .map(([id, value]) => ({
       id,
       ...clone(value.data),
+      note: value.data.note ?? '',
       category: namesById[value.data.categoryId] || '未分类',
       noteConflicts: clone(value.conflicts || []).filter(conflict => conflict.field === 'note')
     }))
@@ -252,6 +254,7 @@ export function project(workspace) {
   for (const [id, value] of Object.entries(records.summaries)) {
     if (value.deleted || !namesById[id]) continue;
     projectedSummaries[namesById[id]] = {
+      content: '',
       ...clone(value.data),
       contentConflicts: clone(value.conflicts || []).filter(conflict => conflict.field === 'content')
     };
@@ -354,6 +357,11 @@ function hasMergeValue(value) {
   return value !== null && value !== undefined;
 }
 
+function hasMergeFieldValue(field, value) {
+  if (field === 'savedAt') return Number.isFinite(value) && value > 0;
+  return hasMergeValue(value);
+}
+
 /** 只读统计访客数据迁入账号后会新增、去重或产生冲突的数量。 */
 export function migrationPreview(guest, account) {
   const local = visibleRecords(guest);
@@ -430,7 +438,9 @@ export function mergeGuest(guest, account) {
     } else {
       const patch = {};
       for (const [field, value] of Object.entries(guestData)) {
-        if (field !== 'note' && hasMergeValue(value) && !hasMergeValue(existing.data[field])) patch[field] = clone(value);
+        if (field !== 'note' && hasMergeFieldValue(field, value) && !hasMergeFieldValue(field, existing.data[field])) {
+          patch[field] = clone(value);
+        }
       }
       if (Object.hasOwn(guestData, 'note') && guestData.note !== existing.data.note) patch.note = guestData.note;
       if (!Object.keys(patch).length && !comment.conflicts?.length) continue;
