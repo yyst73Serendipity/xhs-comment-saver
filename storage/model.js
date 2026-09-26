@@ -391,7 +391,11 @@ export function migrationPreview(guest, account) {
   }
   let summaryConflicts = 0;
   for (const [id, value] of localSummaries) {
-    const cloudValue = cloudSummariesByName.get(localNames[id]);
+    const direct = cloud.categories[id] && !cloud.categories[id].deleted
+      && cloud.summaries[id] && !cloud.summaries[id].deleted
+      ? cloud.summaries[id]
+      : null;
+    const cloudValue = direct || cloudSummariesByName.get(localNames[id]);
     const baseline = cloudValue?.data.content ?? value.data.content;
     const alternatives = new Set(
       (value.conflicts || [])

@@ -489,6 +489,22 @@ test('分类合并优先稳定 ID 且不会把账号重命名改回旧名称', a
   assert.equal(model.visibleRecords(merged).categories['good-things'].data.name, '值得买');
 });
 
+test('迁移预览按稳定分类 ID 识别已重命名默认分类的总结冲突', async () => {
+  const guest = await model.migrateLegacy([], ['未分类', '好物'], {
+    好物: { content: '访客总结' }
+  });
+  const account = await model.migrateLegacy([], ['未分类', '好物'], {
+    好物: { content: '账号总结' }
+  });
+  account.remote.categories['good-things'].data.name = '值得买';
+
+  assert.equal(model.migrationPreview(guest, account).summaryConflicts, 1);
+  const merged = model.mergeGuest(guest, account);
+  const operation = merged.pending.find(item => item.collection === 'summaries');
+  assert.equal(operation.recordId, 'good-things');
+  assert.equal(model.mergeOperation(account.remote.summaries['good-things'], operation).conflicts.length, 1);
+});
+
 test('重复旧笔记从预览到访客迁移确认后仍保留冲突', async () => {
   const guest = await model.migrateLegacy([
     { commentId: 'legacy-notes', text: '正文', note: '旧笔记', savedAt: 1 },
