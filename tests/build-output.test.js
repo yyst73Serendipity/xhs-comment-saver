@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 const run = promisify(execFile);
@@ -15,8 +17,7 @@ async function isMissing(path) {
 }
 
 test('未配置 Firebase 时构建安全且 AI 配置入口可用', async () => {
-  const temporaryDirectory = await mkdtemp('/private/tmp/xhs-build-output-');
-  const outputDirectory = `${temporaryDirectory}/dist`;
+  const outputDirectory = await mkdtemp(join(tmpdir(), 'xhs-comment-saver-build-'));
   try {
     await run(process.execPath, ['scripts/build.js'], {
       env: {
@@ -51,14 +52,13 @@ test('未配置 Firebase 时构建安全且 AI 配置入口可用', async () => 
     assert.match(builtApiConfig, /API_PROVIDER_DEFAULTS/);
     assert.match(builtManagerHtml, /id="btn-api-config"/);
   } finally {
-    await rm(temporaryDirectory, { recursive: true, force: true });
+    await rm(outputDirectory, { recursive: true, force: true });
   }
 });
 
 test('已配置 Firebase 时只加入登录页的精确来源', async () => {
-  const temporaryDirectory = await mkdtemp('/private/tmp/xhs-build-config-');
-  const configPath = `${temporaryDirectory}/firebase.json`;
-  const outputDirectory = `${temporaryDirectory}/dist`;
+  const outputDirectory = await mkdtemp(join(tmpdir(), 'xhs-comment-saver-build-'));
+  const configPath = `${outputDirectory}/firebase.json`;
   try {
     await writeFile(configPath, JSON.stringify({
       apiKey: 'public-key',
@@ -80,6 +80,28 @@ test('已配置 Firebase 时只加入登录页的精确来源', async () => {
     assert.equal(manifest.host_permissions.some(value => value.includes('*.firebaseapp.com')), false);
     assert.equal(manifest.host_permissions.some(value => value.includes('*.web.app')), false);
   } finally {
-    await rm(temporaryDirectory, { recursive: true, force: true });
+    await rm(outputDirectory, { recursive: true, force: true });
+  }
+});
+
+test('危险输出路径在递归删除前被拒绝并保留哨兵', async () => {
+  const projectSentinel = 'manifest.json';
+  const temporarySentinel = await mkdtemp(join(tmpdir(), 'xhs-comment-saver-sentinel-'));
+  const arbitraryAbsoluteDirectory = await mkdtemp(join(tmpdir(), 'other-build-output-'));
+  const dangerousPaths = ['..', homedir(), tmpdir(), arbitraryAbsoluteDirectory];
+
+  try {
+    for (const outputDirectory of dangerousPaths) {
+      await assert.rejects(
+        run(process.execPath, ['scripts/build.js'], {
+          env: { ...process.env, XHS_BUILD_OUTPUT_DIR: outputDirectory }
+        })
+      );
+      assert.equal(await isMissing(projectSentinel), false);
+      assert.equal(await isMissing(temporarySentinel), false);
+    }
+  } finally {
+    await rm(temporarySentinel, { recursive: true, force: true });
+    await rm(arbitraryAbsoluteDirectory, { recursive: true, force: true });
   }
 });

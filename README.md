@@ -119,7 +119,7 @@ xhs-comment-saver/
 
 ### 运行测试
 
-运行 `npm test` 执行 Node.js 自动测试。构建产物测试使用独立临时目录并自动清理，不会覆盖可交付的 `dist`。原有浏览器存储测试仍可在源码模式下打开 `chrome-extension://<扩展ID>/tests/storage.test.html` 执行。
+运行 `npm test` 执行 Node.js 自动测试。构建产物测试只允许使用系统临时目录下带专用前缀的独立目录并自动清理，不会覆盖可交付的 `dist`；正式构建只能输出到项目内固定的 `dist`。原有浏览器存储测试仍可在源码模式下打开 `chrome-extension://<扩展ID>/tests/storage.test.html` 执行。
 
 ### Firebase 构建配置
 

@@ -1,19 +1,59 @@
 /**
  * 构建可加载扩展、认证页面和个人专用规则，并保留固定扩展 ID。
  */
-import { access, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, cp, lstat, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { dirname, parse, resolve } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { build } from 'esbuild';
 import { isConfigured, isOwnerConfigured } from '../auth/auth-guard.js';
 
 const manifest = JSON.parse(await readFile('manifest.json', 'utf8'));
 const firebaseConfigPath = process.env.XHS_FIREBASE_CONFIG_PATH || 'config/firebase.local.json';
-const outputRoot = resolve(process.env.XHS_BUILD_OUTPUT_DIR || 'dist');
-const projectRoot = resolve('.');
-if (outputRoot === projectRoot || outputRoot === parse(outputRoot).root) {
-  throw new Error('构建输出目录不能是项目根目录或文件系统根目录');
+const projectRoot = await realpath('.');
+
+/**
+ * 只允许正式 dist 或测试工具创建的专属临时目录，避免递归删除任意路径。
+ */
+async function resolveOutputRoot() {
+  const requested = process.env.XHS_BUILD_OUTPUT_DIR;
+  if (requested === undefined) {
+    const defaultOutput = join(projectRoot, 'dist');
+    const existing = await lstat(defaultOutput).catch(error => {
+      if (error.code !== 'ENOENT') throw error;
+      return null;
+    });
+    if (existing?.isSymbolicLink()) throw new Error('默认构建目录不能是符号链接');
+    return defaultOutput;
+  }
+
+  if (!isAbsolute(requested)) throw new Error('测试构建输出目录必须是绝对路径');
+  const temporaryRoot = await realpath(tmpdir());
+  const requestedPath = resolve(requested);
+  const entry = await lstat(requestedPath).catch(error => {
+    if (error.code !== 'ENOENT') throw error;
+    return null;
+  });
+  if (!entry?.isDirectory() || entry.isSymbolicLink()) {
+    throw new Error('测试构建输出目录必须是 mkdtemp 创建的真实目录');
+  }
+  const realOutput = await realpath(requestedPath);
+  const homeRoot = await realpath(homedir());
+  if (
+    realOutput === projectRoot
+    || projectRoot.startsWith(`${realOutput}${sep}`)
+    || realOutput === homeRoot
+    || homeRoot.startsWith(`${realOutput}${sep}`)
+  ) {
+    throw new Error('测试构建输出目录不能是项目或主目录及其祖先');
+  }
+  if (dirname(realOutput) !== temporaryRoot || !/^xhs-comment-saver-build-[A-Za-z0-9]{6}$/.test(basename(realOutput))) {
+    throw new Error('测试构建输出目录不在允许的系统临时目录白名单中');
+  }
+  return realOutput;
 }
+
+const outputRoot = await resolveOutputRoot();
 const extensionOutput = `${outputRoot}/extension`;
 const hostingOutput = `${outputRoot}/hosting`;
 const firebaseConfig = JSON.parse(await readFile(firebaseConfigPath, 'utf8').catch(error => {
