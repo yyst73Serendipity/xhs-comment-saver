@@ -214,3 +214,55 @@ test('评论组跳过已有活跃项和组内重复，只给新增与墓碑恢�
   assert.equal(grouped[0].groupId, grouped[1].groupId);
   assert.deepEqual(grouped.map(item => item.groupIndex).sort(), [0, 1]);
 });
+
+test('超大评论和总结元数据会在入队前拒绝且保持账号状态不变', async () => {
+  const invalidMessages = [
+    { action: 'saveComment', data: { commentId: 'large-author', author: '作'.repeat(1_100_000) } },
+    {
+      action: 'saveComment',
+      data: { commentId: 'many-images', images: Array.from({ length: 20_000 }, (_, index) => `https://img.example/${index}`) }
+    },
+    {
+      action: 'saveComment',
+      data: {
+        commentId: 'large-record',
+        images: Array.from({ length: 100 }, (_, index) => `https://img.example/${index}/${'a'.repeat(8_000)}`)
+      }
+    },
+    {
+      action: 'saveSummary', category: '未分类',
+      data: { content: '总结', model: '型'.repeat(1_000), provider: 'test', generatedBy: 'ai' }
+    }
+  ];
+
+  for (const message of invalidMessages) {
+    const state = await createState([], ['未分类'], {});
+    activateAccount(state, { uid: 'a' });
+    const before = JSON.stringify(currentWorkspace(state));
+    await assert.rejects(() => mutate(state, message), /不能超过|过大/);
+    assert.equal(JSON.stringify(currentWorkspace(state)), before);
+  }
+});
+
+test('重复收藏活跃评论直接返回标识且不覆盖历史字段或增加队列', async () => {
+  const state = await createState([], ['未分类', '学习'], {});
+  activateAccount(state, { uid: 'a' });
+  await mutate(state, { action: 'addCategory', name: '学习' });
+  const id = await mutate(state, {
+    action: 'saveComment',
+    data: { commentId: 'same', text: '原正文', note: '原笔记', category: '学习', savedAt: 10 }
+  });
+  const before = JSON.stringify(currentWorkspace(state));
+  const duplicateId = await mutate(state, {
+    action: 'saveComment',
+    data: { commentId: 'same', text: '新正文', note: '新笔记', category: '未分类', savedAt: 20 }
+  });
+
+  assert.equal(duplicateId, id);
+  assert.equal(JSON.stringify(currentWorkspace(state)), before);
+  const saved = project(currentWorkspace(state)).comments.find(comment => comment.id === id);
+  assert.equal(saved.text, '原正文');
+  assert.equal(saved.note, '原笔记');
+  assert.equal(saved.category, '学习');
+  assert.equal(saved.savedAt, 10);
+});

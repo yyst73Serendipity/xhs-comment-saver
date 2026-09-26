@@ -29,6 +29,31 @@ const COMMENT_STRING_FIELDS = [
 ];
 const SUMMARY_FIELDS = new Set(['content', 'updatedAt', 'generatedBy', 'model', 'provider']);
 const DANGEROUS_FIELDS = new Set(['__proto__', 'prototype', 'constructor']);
+// 这些边界要在 Firestore Rules 中使用相同或更严格的值，给文档元数据和规则开销留足余量。
+export const SYNC_INPUT_LIMITS = Object.freeze({
+  recordDataBytes: 700 * 1024,
+  imagesPerComment: 100,
+  mediaUrlBytes: 16 * 1024,
+  commentStringBytes: Object.freeze({
+    id: 16 * 1024,
+    commentId: 512,
+    key: 16 * 1024,
+    text: 300 * 1024,
+    author: 8 * 1024,
+    postUrl: 16 * 1024,
+    postTitle: 32 * 1024,
+    groupId: 512,
+    note: 300 * 1024,
+    legacyId: 16 * 1024,
+    legacyKey: 16 * 1024
+  }),
+  summaryStringBytes: Object.freeze({
+    content: 300 * 1024,
+    generatedBy: 256,
+    model: 2 * 1024,
+    provider: 256
+  })
+});
 const ACTIONS = new Set([
   'saveComment', 'saveCommentGroup', 'deleteComment', 'updateNote', 'updateCategory', 'addCategory',
   'renameCategory', 'deleteCategory', 'reorderCategories', 'saveSummary', 'deleteSummary', 'importData',
@@ -36,6 +61,18 @@ const ACTIONS = new Set([
 ]);
 
 const clone = value => structuredClone(value);
+const utf8Bytes = value => new TextEncoder().encode(value).byteLength;
+
+function requireUtf8Boundary(value, label, maximum) {
+  if (utf8Bytes(value) > maximum) throw new Error(`${label}不能超过 ${maximum} 字节`);
+}
+
+function requireRecordBudget(value, label) {
+  const bytes = utf8Bytes(JSON.stringify(value));
+  if (bytes > SYNC_INPUT_LIMITS.recordDataBytes) {
+    throw new Error(`${label}记录过大，不能超过 ${SYNC_INPUT_LIMITS.recordDataBytes} 字节`);
+  }
+}
 
 function isPlainObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -57,6 +94,7 @@ function mediaUrl(value, label, allowObject = false) {
       ? value.url
       : null;
   if (raw === null) throw new Error(`${label}格式无效`);
+  requireUtf8Boundary(raw, `${label} URL`, SYNC_INPUT_LIMITS.mediaUrlBytes);
   try {
     const url = new URL(raw);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error();
@@ -67,15 +105,22 @@ function mediaUrl(value, label, allowObject = false) {
 
 function validateSummary(value, label = '总结') {
   validateSafeFields(value, SUMMARY_FIELDS, label);
-  if (Object.hasOwn(value, 'content') && value.content != null) requireText(value.content, '总结');
+  if (Object.hasOwn(value, 'content') && value.content != null) {
+    requireText(value.content, '总结');
+    requireUtf8Boundary(value.content, '总结', SYNC_INPUT_LIMITS.summaryStringBytes.content);
+  }
   if (Object.hasOwn(value, 'content') && value.content == null) throw new Error('总结内容格式无效');
   if (Object.hasOwn(value, 'updatedAt')
-    && (!Number.isFinite(value.updatedAt) || value.updatedAt < 0)) throw new Error('总结更新时间无效');
+    && (!Number.isSafeInteger(value.updatedAt) || value.updatedAt < 0)) throw new Error('总结更新时间无效');
   for (const field of ['generatedBy', 'model', 'provider']) {
     if (Object.hasOwn(value, field) && typeof value[field] !== 'string') {
       throw new Error(`总结字段 ${field} 格式无效`);
     }
+    if (Object.hasOwn(value, field)) {
+      requireUtf8Boundary(value[field], `总结字段 ${field}`, SYNC_INPUT_LIMITS.summaryStringBytes[field]);
+    }
   }
+  requireRecordBudget(value, '总结');
 }
 
 function setOwn(target, key, value) {
@@ -141,20 +186,29 @@ function commentPatch(comment, categoryId, extra = {}) {
     if (Object.hasOwn(comment, field) && comment[field] != null && typeof comment[field] !== 'string') {
       throw new Error(`评论字段 ${field} 必须是字符串`);
     }
+    if (Object.hasOwn(comment, field) && comment[field] != null) {
+      requireUtf8Boundary(comment[field], `评论字段 ${field}`, SYNC_INPUT_LIMITS.commentStringBytes[field]);
+    }
   }
   if (Object.hasOwn(comment, 'category') && comment.category != null && typeof comment.category !== 'string') {
     throw new Error('评论字段 category 必须是字符串');
   }
   if (Object.hasOwn(comment, 'savedAt') && comment.savedAt != null
-    && (!Number.isFinite(comment.savedAt) || comment.savedAt < 0)) throw new Error('评论收藏时间无效');
+    && (!Number.isSafeInteger(comment.savedAt) || comment.savedAt < 0)) throw new Error('评论收藏时间无效');
   if (Object.hasOwn(comment, 'groupIndex') && comment.groupIndex != null
-    && (!Number.isInteger(comment.groupIndex) || comment.groupIndex < 0)) throw new Error('评论组序号无效');
+    && (!Number.isSafeInteger(comment.groupIndex) || comment.groupIndex < 0)) throw new Error('评论组序号无效');
   if (Object.hasOwn(comment, 'id') && comment.id != null
-    && typeof comment.id !== 'string' && !(typeof comment.id === 'number' && Number.isFinite(comment.id))) {
+    && typeof comment.id !== 'string' && !(typeof comment.id === 'number' && Number.isSafeInteger(comment.id))) {
     throw new Error('评论旧标识格式无效');
+  }
+  if (typeof comment.id === 'string') {
+    requireUtf8Boundary(comment.id, '评论字段 id', SYNC_INPUT_LIMITS.commentStringBytes.id);
   }
   if (Object.hasOwn(comment, 'images') && comment.images != null) {
     if (!Array.isArray(comment.images)) throw new Error('评论图片格式无效');
+    if (comment.images.length > SYNC_INPUT_LIMITS.imagesPerComment) {
+      throw new Error(`评论图片不能超过 ${SYNC_INPUT_LIMITS.imagesPerComment} 张`);
+    }
     for (const image of comment.images) mediaUrl(image, '评论图片');
   }
   if (Object.hasOwn(comment, 'audio') && comment.audio != null) mediaUrl(comment.audio, '评论语音', true);
@@ -164,7 +218,9 @@ function commentPatch(comment, categoryId, extra = {}) {
   }
   if (Object.hasOwn(patch, 'text')) requireText(patch.text, '评论正文');
   if (Object.hasOwn(patch, 'note')) requireText(patch.note, '笔记');
-  return { ...patch, ...extra, categoryId, savedAt: patch.savedAt ?? Date.now() };
+  const result = { ...patch, ...extra, categoryId, savedAt: patch.savedAt ?? Date.now() };
+  requireRecordBudget(result, '评论');
+  return result;
 }
 
 function materialize(workspace) {
@@ -183,6 +239,10 @@ function replaceCurrent(state, workspace) {
 }
 
 function queue(state, collection, recordId, patch, options = {}) {
+  if (!options.deleted && ['comments', 'summaries'].includes(collection)) {
+    const current = visibleRecords(currentWorkspace(state))[collection]?.[recordId];
+    requireRecordBudget({ ...(current?.data || {}), ...patch }, collection === 'comments' ? '评论' : '总结');
+  }
   const next = enqueueOperation(currentWorkspace(state), collection, recordId, patch, options);
   replaceCurrent(state, state.activeAccountUid === null ? materialize(next) : next);
 }
@@ -200,6 +260,7 @@ async function prepareComment(workspace, source, extra = {}) {
 
 async function saveOne(state, source, extra = {}) {
   const prepared = await prepareComment(currentWorkspace(state), source, extra);
+  if (prepared.active) return prepared.id;
   queue(state, 'comments', prepared.id, prepared.patch, { restore: prepared.restore });
   return prepared.id;
 }
@@ -384,6 +445,8 @@ export async function mutate(state, message) {
       for (const field of ['generatedBy', 'model', 'provider']) {
         if (typeof metadata[field] === 'string') patch[field] = metadata[field];
       }
+      requireUtf8Boundary(content, '总结', SYNC_INPUT_LIMITS.summaryStringBytes.content);
+      requireRecordBudget(patch, '总结');
       queue(state, 'summaries', category.id, patch, { restore: visibleRecords(workspace).summaries[category.id]?.deleted === true });
       return;
     }
