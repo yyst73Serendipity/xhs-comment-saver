@@ -241,7 +241,9 @@ function mergeDuplicateComment(existing, incoming, recordId) {
       conflicts.push({ id: `migration-${recordId}-${crypto.randomUUID()}`, field: 'note', local });
     }
   }
-  return { ...newRecord(data), conflicts: conflicts.slice(-MAX_CONFLICTS) };
+  const result = { ...newRecord(data), conflicts: conflicts.slice(-MAX_CONFLICTS) };
+  requireRecordBudget(result, '评论');
+  return result;
 }
 
 /** 把旧数组和分类名称转换成稳定 ID 的版本化工作区。 */

@@ -4,6 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as model from '../storage/model.js';
+import { createState } from '../storage/account-state.js';
 
 const record = (data, extra = {}) => ({ data, revision: 1, deleted: false, conflicts: [], ...extra });
 
@@ -755,4 +756,35 @@ test('完整记录预算同时计算数据、多个冲突和记录包装字段',
     () => model.enqueueOperation(model.emptyWorkspace(), 'comments', 'comment-conflict-budget', largeData, { conflicts }),
     /记录过大/
   );
+});
+
+test('重复迁移追加冲突后超预算会隔离该项并保留已有及后续评论', async () => {
+  const first = {
+    commentId: 'duplicate-budget',
+    text: 't'.repeat(100_000),
+    note: 'n'.repeat(100_000),
+    author: 'a'.repeat(8_000),
+    postTitle: 'p'.repeat(32_000),
+    key: 'k'.repeat(16_000),
+    images: Array.from({ length: 100 }, (_, index) => `https://img.example/${index}/${'x'.repeat(1_600)}`),
+    savedAt: 1
+  };
+  const duplicate = { commentId: 'duplicate-budget', note: '字'.repeat(100_000), savedAt: 2 };
+  const later = { commentId: 'later-valid', text: '后续有效评论' };
+
+  assert.equal((await model.migrateLegacy([first], ['未分类'], {})).migrationIssues.length, 0);
+  assert.equal((await model.migrateLegacy([duplicate], ['未分类'], {})).migrationIssues.length, 0);
+
+  const workspace = await model.migrateLegacy([first, duplicate, later], ['未分类'], {});
+  assert.equal(workspace.migrationIssues.length, 1);
+  assert.match(workspace.migrationIssues[0].reason, /记录过大/);
+  const visible = model.visibleRecords(workspace);
+  assert.equal(visible.comments['comment-duplicate-budget'].data.note, first.note);
+  assert.equal(visible.comments['comment-duplicate-budget'].data.savedAt, 1);
+  assert.equal(visible.comments['comment-later-valid'].data.text, '后续有效评论');
+
+  const state = await createState([first, duplicate, later], ['未分类'], {});
+  assert.equal(state.guest.migrationIssues.length, 1);
+  assert.doesNotThrow(() => model.visibleRecords(state.guest));
+  assert.equal(model.visibleRecords(state.guest).comments['comment-later-valid'].data.text, '后续有效评论');
 });
