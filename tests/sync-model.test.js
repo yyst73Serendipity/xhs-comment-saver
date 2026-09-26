@@ -26,6 +26,25 @@ test('缺少 commentId 时使用确定性的 SHA-256 标识', async () => {
   assert.match(first, /^fallback-[a-f0-9]{64}$/);
 });
 
+test('fallback 标识保留 note_id 并忽略追踪参数', async () => {
+  const base = { author: '甲', text: '相同正文' };
+  const first = await model.commentIdentity({
+    ...base,
+    postUrl: 'https://www.xiaohongshu.com/explore/card?note_id=abc&xsec_token=one&source=web'
+  });
+  const samePost = await model.commentIdentity({
+    ...base,
+    postUrl: 'https://www.xiaohongshu.com/explore/card?xsec_token=two&note_id=abc'
+  });
+  const otherPost = await model.commentIdentity({
+    ...base,
+    postUrl: 'https://www.xiaohongshu.com/explore/card?note_id=def&xsec_token=one'
+  });
+
+  assert.equal(first, samePost);
+  assert.notEqual(first, otherPost);
+});
+
 test('平台 commentId 会转义路径分隔符', async () => {
   const identity = await model.commentIdentity({ commentId: '../Other/Comment' });
 
@@ -42,6 +61,41 @@ test('重复 fallback 标识只迁移最新评论', async () => {
 
   assert.equal(Object.keys(space.remote.comments).length, 1);
   assert.equal(Object.values(space.remote.comments)[0].data.note, '新笔记');
+});
+
+test('重复评论按字段合并并保留冲突笔记', async () => {
+  const space = await model.migrateLegacy([
+    {
+      id: 'older', commentId: 'merge', text: '旧正文', note: '旧笔记', images: ['https://img/old'],
+      audio: 'https://audio/old', category: '好物', key: 'old-key', savedAt: 1
+    },
+    {
+      id: 'newer', commentId: 'merge', text: '新正文', note: '新笔记', images: [],
+      audio: '', category: '', key: '', savedAt: 2
+    }
+  ], ['未分类', '好物'], {});
+  const value = space.remote.comments['comment-merge'];
+
+  assert.equal(value.data.text, '新正文');
+  assert.equal(value.data.note, '新笔记');
+  assert.deepEqual(value.data.images, ['https://img/old']);
+  assert.equal(value.data.audio, 'https://audio/old');
+  assert.equal(value.data.categoryId, 'good-things');
+  assert.equal(value.data.key, 'old-key');
+  assert.equal(value.conflicts[0].field, 'note');
+  assert.equal(value.conflicts[0].local, '旧笔记');
+});
+
+test('多个同时间的不同旧笔记都不会在迁移中静默丢失', async () => {
+  const space = await model.migrateLegacy([
+    { commentId: 'notes', text: '正文', note: '版本一', savedAt: 1 },
+    { commentId: 'notes', text: '正文', note: '版本二', savedAt: 1 },
+    { commentId: 'notes', text: '正文', note: '版本三', savedAt: 1 }
+  ], ['未分类'], {});
+  const value = space.remote.comments['comment-notes'];
+
+  assert.equal(value.data.note, '版本三');
+  assert.deepEqual(value.conflicts.map(item => item.local).sort(), ['版本一', '版本二']);
 });
 
 test('默认分类 ID 固定且自定义分类使用 UUID', async () => {
@@ -82,7 +136,9 @@ test('迁移保留评论组、媒体与旧记录元数据', async () => {
   assert.equal(space.remote.comments['comment-7'].data.audio, 'https://audio/1');
   assert.equal(space.remote.comments['comment-7'].data.groupId, 'group');
   assert.equal(space.remote.comments['comment-7'].data.groupIndex, 2);
+  assert.equal(space.remote.comments['comment-7'].data.key, 'old-key');
   assert.equal(space.remote.comments['comment-7'].data.legacyKey, 'old-key');
+  assert.equal(model.project(space).comments[0].key, 'old-key');
 });
 
 test('无效评论被忽略且不存在的分类归入未分类', async () => {
@@ -94,6 +150,29 @@ test('无效评论被忽略且不存在的分类归入未分类', async () => {
 
   assert.deepEqual(Object.keys(space.remote.comments), ['comment-valid']);
   assert.equal(space.remote.comments['comment-valid'].data.categoryId, 'uncategorized');
+});
+
+test('超长旧记录被逐项隔离且迁移问题可预览', async () => {
+  const sourceComments = [
+    { commentId: 'valid', text: '正常评论', category: '未分类' },
+    { commentId: 'too-long', text: '字'.repeat(100_001), category: '未分类' }
+  ];
+  const sourceSummaries = {
+    未分类: { content: '字'.repeat(100_001) },
+    好物: { content: '正常总结' }
+  };
+  const originalText = sourceComments[1].text;
+  const space = await model.migrateLegacy(sourceComments, ['未分类', '好物'], sourceSummaries);
+
+  assert.deepEqual(Object.keys(space.remote.comments), ['comment-valid']);
+  assert.equal(space.remote.summaries['good-things'].data.content, '正常总结');
+  assert.equal(space.migrationIssues.length, 2);
+  assert.match(space.migrationIssues[0].reason, /不能超过 100000 个字符/);
+  assert.equal(sourceComments[1].text, originalText);
+
+  const preview = model.migrationPreview(space, model.emptyWorkspace());
+  assert.equal(preview.rejected, 2);
+  assert.deepEqual(preview.issues, space.migrationIssues);
 });
 
 test('不同字段并发修改按字段合并', () => {
@@ -199,7 +278,9 @@ test('迁移预览统计评论、分类、总结、重复项与笔记冲突', as
     duplicates: 1,
     additions: 1,
     noteConflicts: 1,
-    summaryConflicts: 1
+    summaryConflicts: 1,
+    rejected: 0,
+    issues: []
   });
 });
 

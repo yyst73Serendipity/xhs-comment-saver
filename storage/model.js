@@ -22,7 +22,8 @@ export function emptyWorkspace() {
     remote: { comments: {}, categories: {}, summaries: {}, settings: {} },
     pending: [],
     cursors: { comments: null, categories: null, summaries: null, settings: null },
-    lastSync: 0
+    lastSync: 0,
+    migrationIssues: []
   };
 }
 
@@ -34,8 +35,11 @@ function normalizePostUrl(value) {
   if (typeof value !== 'string' || !value.trim()) return '';
   try {
     const url = new URL(value.trim());
+    const noteId = url.searchParams.get('note_id');
     url.search = '';
     url.hash = '';
+    // note_id 决定分享卡片对应的帖子；xsec_token、source 等参数只用于追踪或临时鉴权。
+    if (noteId) url.searchParams.set('note_id', noteId);
     return url.toString().replace(/\/$/, '');
   } catch {
     return value.trim().split(/[?#]/, 1)[0].replace(/\/$/, '');
@@ -89,9 +93,38 @@ function legacyCommentData(source, categoryId) {
     categoryId,
     note: typeof source.note === 'string' ? source.note : '',
     savedAt: Number.isFinite(source.savedAt) ? source.savedAt : 0,
+    ...(source.key == null ? {} : { key: source.key }),
     ...(source.id == null ? {} : { legacyId: source.id }),
     ...(source.key == null ? {} : { legacyKey: source.key })
   };
+}
+
+function hasMigrationValue(value) {
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'string') return value.trim().length > 0;
+  return value !== null && value !== undefined;
+}
+
+function mergeDuplicateComment(existing, incoming, recordId) {
+  const incomingIsNewer = (incoming.data.savedAt || 0) >= (existing.data.savedAt || 0);
+  const newer = incomingIsNewer ? incoming : existing;
+  const older = incomingIsNewer ? existing : incoming;
+  const data = {};
+  for (const field of new Set([...Object.keys(older.data), ...Object.keys(newer.data)])) {
+    data[field] = clone(hasMigrationValue(newer.data[field]) ? newer.data[field] : older.data[field]);
+  }
+  data.categoryId ||= 'uncategorized';
+
+  const conflicts = [...(existing.conflicts || []), ...(incoming.conflicts || [])];
+  const newerNote = newer.data.note;
+  const olderNote = older.data.note;
+  if (hasMigrationValue(newerNote) && hasMigrationValue(olderNote) && newerNote !== olderNote) {
+    const local = String(olderNote).slice(0, MAX_CONFLICT_TEXT_LENGTH);
+    if (!conflicts.some(conflict => conflict.field === 'note' && conflict.local === local)) {
+      conflicts.push({ id: `migration-${recordId}-${crypto.randomUUID()}`, field: 'note', local });
+    }
+  }
+  return { ...newRecord(data), conflicts: conflicts.slice(-MAX_CONFLICTS) };
 }
 
 /** 把旧数组和分类名称转换成稳定 ID 的版本化工作区。 */
@@ -110,22 +143,42 @@ export async function migrateLegacy(comments = [], categories = DEFAULT_CATEGORI
 
   for (const source of Array.isArray(comments) ? comments : []) {
     if (!validLegacyComment(source)) continue;
-    const categoryId = idsByName[categoryName(source.category)] || 'uncategorized';
-    const data = legacyCommentData(source, categoryId);
-    validateTextBoundary('comments', data);
-    const id = await commentIdentity(source);
-    const existing = workspace.remote.comments[id];
-    if (!existing || data.savedAt > (existing.data.savedAt || 0)) workspace.remote.comments[id] = newRecord(data);
+    try {
+      const sourceCategory = categoryName(source.category);
+      const categoryId = sourceCategory ? idsByName[sourceCategory] || 'uncategorized' : '';
+      const data = legacyCommentData(source, categoryId);
+      validateTextBoundary('comments', data);
+      const id = await commentIdentity(source);
+      const incoming = newRecord(data);
+      const existing = workspace.remote.comments[id];
+      workspace.remote.comments[id] = existing
+        ? mergeDuplicateComment(existing, incoming, id)
+        : newRecord({ ...data, categoryId: data.categoryId || 'uncategorized' });
+    } catch (error) {
+      workspace.migrationIssues.push({
+        type: 'comment',
+        legacyId: source.id ?? source.commentId ?? null,
+        reason: error?.message || '评论无法迁移'
+      });
+    }
   }
 
   if (summaries && typeof summaries === 'object' && !Array.isArray(summaries)) {
     for (const [name, legacySummary] of Object.entries(summaries)) {
       const id = idsByName[categoryName(name)];
       if (!id || legacySummary == null) continue;
-      const data = typeof legacySummary === 'string' ? { content: legacySummary } : clone(legacySummary);
-      if (typeof data.content !== 'string') data.content = '';
-      validateTextBoundary('summaries', data);
-      workspace.remote.summaries[id] = newRecord(data);
+      try {
+        const data = typeof legacySummary === 'string' ? { content: legacySummary } : clone(legacySummary);
+        if (typeof data.content !== 'string') data.content = '';
+        validateTextBoundary('summaries', data);
+        workspace.remote.summaries[id] = newRecord(data);
+      } catch (error) {
+        workspace.migrationIssues.push({
+          type: 'summary',
+          category: name,
+          reason: error?.message || '分类总结无法迁移'
+        });
+      }
     }
   }
   return workspace;
@@ -298,7 +351,9 @@ export function migrationPreview(guest, account) {
     summaryConflicts: localSummaries.filter(([id, value]) => {
       const cloudValue = cloudSummariesByName.get(localNames[id]);
       return value.data.content && cloudValue?.data.content && value.data.content !== cloudValue.data.content;
-    }).length
+    }).length,
+    rejected: guest.migrationIssues?.length || 0,
+    issues: clone(guest.migrationIssues || [])
   };
 }
 
