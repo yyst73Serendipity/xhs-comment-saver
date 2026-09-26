@@ -73,12 +73,33 @@ test('无法唯一识别的新评论会被拒绝且旧迁移会记录问题', as
   const space = await model.migrateLegacy([
     { author: '只有作者' },
     { postUrl: 'https://www.xiaohongshu.com/explore/1' },
+    { author: '同一作者', text: '同一正文' },
+    { author: '同一作者', text: '同一正文' },
     { id: 'old-a' },
     { id: 'old-b' }
   ], ['未分类'], {});
   assert.equal(Object.keys(space.remote.comments).length, 2);
-  assert.equal(space.migrationIssues.length, 2);
+  assert.equal(space.migrationIssues.length, 4);
   assert.match(space.migrationIssues[0].reason, /缺少可用于去重的稳定标识/);
+});
+
+test('文本 fallback 必须绑定帖子 URL 且不受延迟媒体变化影响', async () => {
+  const base = { postUrl: 'https://www.xiaohongshu.com/explore/one', author: '甲', text: '正文' };
+  const withoutMedia = await model.commentIdentity(base);
+  const withMedia = await model.commentIdentity({ ...base, images: ['https://img/later'], audio: { url: 'https://audio/later' } });
+  const otherPost = await model.commentIdentity({ ...base, postUrl: 'https://www.xiaohongshu.com/explore/two' });
+
+  assert.equal(withoutMedia, withMedia);
+  assert.notEqual(withoutMedia, otherPost);
+  await assert.rejects(() => model.commentIdentity({ author: '甲', text: '正文' }), /缺少可用于去重的稳定标识/);
+});
+
+test('纯媒体 fallback 必须绑定帖子 URL 并包含媒体身份', async () => {
+  const image = await model.commentIdentity({ postUrl: 'https://www.xiaohongshu.com/explore/one', images: ['https://img/one'] });
+  const audio = await model.commentIdentity({ postUrl: 'https://www.xiaohongshu.com/explore/one', audio: { url: 'https://audio/one' } });
+
+  assert.notEqual(image, audio);
+  await assert.rejects(() => model.commentIdentity({ images: ['https://img/one'] }), /缺少可用于去重的稳定标识/);
 });
 
 test('重复 fallback 标识只迁移最新评论', async () => {
@@ -412,6 +433,46 @@ test('操作入口拒绝可能越过 Firestore 文档路径的记录 ID', () => 
     () => model.enqueueOperation(model.emptyWorkspace(), 'comments', '../other', { note: '内容' }),
     /记录 ID 无效/
   );
+});
+
+test('操作补丁拒绝危险和未知字段且不会污染记录原型', () => {
+  const dangerous = JSON.parse('{"__proto__":{"polluted":true}}');
+  assert.throws(
+    () => model.enqueueOperation(model.emptyWorkspace(), 'comments', 'comment-safe', dangerous),
+    /评论字段 __proto__ 不允许同步/
+  );
+  assert.throws(
+    () => model.enqueueOperation(model.emptyWorkspace(), 'comments', 'comment-safe', { constructor: '危险' }),
+    /评论字段 constructor 不允许同步/
+  );
+  assert.throws(
+    () => model.enqueueOperation(model.emptyWorkspace(), 'comments', 'comment-safe', { prototype: '危险' }),
+    /评论字段 prototype 不允许同步/
+  );
+  assert.throws(
+    () => model.enqueueOperation(model.emptyWorkspace(), 'summaries', 'good-things', { unknown: 'value' }),
+    /总结字段 unknown 不允许同步/
+  );
+  assert.throws(
+    () => model.mergeOperation(record({ note: '原值' }), {
+      id: 'unsafe', collection: 'comments', recordId: 'comment-safe', baseRevision: 1,
+      patch: dangerous, baseData: {}
+    }),
+    /评论字段 __proto__ 不允许同步/
+  );
+  assert.equal({}.polluted, undefined);
+});
+
+test('允许字段写入为安全 own property 且数据对象无原型', () => {
+  const workspace = model.enqueueOperation(model.emptyWorkspace(), 'comments', 'comment-safe', {
+    text: '正文', note: '', images: ['https://img/one']
+  });
+  const visible = model.visibleRecords(workspace).comments['comment-safe'];
+  const merged = model.mergeOperation(undefined, workspace.pending[0]);
+
+  assert.equal(Object.getPrototypeOf(visible.data), null);
+  assert.equal(Object.getPrototypeOf(merged.data), null);
+  assert.equal(Object.hasOwn(merged.data, 'note'), true);
 });
 
 test('过期编辑不能恢复墓碑，显式重新收藏可以恢复', () => {

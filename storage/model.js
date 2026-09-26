@@ -12,18 +12,50 @@ const DEFAULT_CATEGORY_IDS = new Map([
   ['搞笑', 'funny']
 ]);
 const DEFAULT_CATEGORIES = [...DEFAULT_CATEGORY_IDS.keys()];
+const ALLOWED_FIELDS = new Map([
+  ['comments', new Set([
+    'commentId', 'text', 'author', 'postUrl', 'postTitle', 'images', 'audio', 'groupId', 'groupIndex',
+    'categoryId', 'note', 'savedAt', 'key', 'legacyId', 'legacyKey'
+  ])],
+  ['categories', new Set(['name', 'createdAt', 'updatedAt'])],
+  ['summaries', new Set(['content', 'updatedAt', 'generatedBy', 'model', 'provider'])],
+  ['settings', new Set(['categoryOrder', 'order'])]
+]);
+const COLLECTION_LABELS = new Map([
+  ['comments', '评论'], ['categories', '分类'], ['summaries', '总结'], ['settings', '设置']
+]);
 const same = (left, right) => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
-const newRecord = data => ({ data, revision: 0, deleted: false, conflicts: [] });
 const clone = value => structuredClone(value);
+
+function safeData(source = {}) {
+  const target = Object.create(null);
+  for (const [key, value] of Object.entries(source || {})) setOwn(target, key, clone(value));
+  return target;
+}
+
+function normalizeRecord(record) {
+  if (!record || typeof record !== 'object') return newRecord({});
+  return { ...record, data: safeData(record.data), conflicts: clone(record.conflicts || []) };
+}
+
+const newRecord = data => ({ data: safeData(data), revision: 0, deleted: false, conflicts: [] });
 
 function safeRecordMap(source = {}) {
   const target = Object.create(null);
-  for (const [key, value] of Object.entries(source)) target[key] = value;
+  for (const [key, value] of Object.entries(source)) setOwn(target, key, normalizeRecord(value));
   return target;
 }
 
 function setOwn(target, key, value) {
   Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
+function validatePatchFields(collection, patch) {
+  const allowed = ALLOWED_FIELDS.get(collection);
+  if (!allowed) throw new Error('同步集合无效');
+  for (const field of Object.keys(patch || {})) {
+    if (!allowed.has(field)) throw new Error(`${COLLECTION_LABELS.get(collection)}字段 ${field} 不允许同步`);
+  }
 }
 
 function normalizeConflicts(conflicts, data = {}) {
@@ -91,14 +123,19 @@ export async function commentIdentity(comment) {
   const postUrl = normalizePostUrl(comment?.postUrl);
   const author = normalizeText(comment?.author);
   const text = normalizeText(comment?.text);
-  const images = Array.isArray(comment?.images) ? comment.images.map(normalizeText).filter(Boolean) : [];
-  const audio = Array.isArray(comment?.audio)
-    ? comment.audio.map(normalizeText).filter(Boolean)
-    : [normalizeText(comment?.audio)].filter(Boolean);
-  const hasContext = Boolean(postUrl || author);
-  const hasContent = Boolean(text || images.length || audio.length);
-  if (hasContext && hasContent) {
-    return hash('fallback', [postUrl, author, text, JSON.stringify(images), JSON.stringify(audio)].join('\u001f'));
+  const mediaIdentity = value => {
+    if (typeof value === 'string') return normalizeText(value);
+    return value && typeof value.url === 'string' ? normalizeText(value.url) : '';
+  };
+  const images = Array.isArray(comment?.images) ? comment.images.map(mediaIdentity).filter(Boolean) : [];
+  const audioValues = Array.isArray(comment?.audio) ? comment.audio : [comment?.audio];
+  const audio = audioValues.map(mediaIdentity).filter(Boolean);
+  if (postUrl && text) {
+    // 文本评论不包含延迟加载的媒体，避免同一评论因图片或语音稍后出现而改变 ID。
+    return hash('fallback', [postUrl, author, text].join('\u001f'));
+  }
+  if (postUrl && (images.length || audio.length)) {
+    return hash('fallback', [postUrl, author, JSON.stringify(images), JSON.stringify(audio)].join('\u001f'));
   }
 
   const legacyId = typeof comment?.id === 'string' || typeof comment?.id === 'number'
@@ -229,6 +266,7 @@ export async function migrateLegacy(comments = [], categories = DEFAULT_CATEGORI
       try {
         const data = typeof legacySummary === 'string' ? { content: legacySummary } : clone(legacySummary);
         if (Object.hasOwn(data, 'content') && typeof data.content !== 'string') throw new Error('总结内容格式无效');
+        validatePatchFields('summaries', data);
         validateTextBoundary('summaries', data);
         workspace.remote.summaries[id] = newRecord(data);
       } catch (error) {
@@ -257,11 +295,13 @@ export function visibleRecords(workspace) {
 }
 
 function applyVisibleOperation(previous, operation) {
+  validatePatchFields(operation.collection, operation.patch);
   if (previous.deleted && !operation.restore && !operation.deleted) return previous;
   const unresolved = operation.resolveIds
     ? previous.conflicts.filter(conflict => !operation.resolveIds.includes(conflict.id))
     : previous.conflicts;
-  const data = { ...previous.data, ...clone(operation.patch) };
+  const data = safeData(previous.data);
+  for (const [field, value] of Object.entries(operation.patch || {})) setOwn(data, field, clone(value));
   return {
     ...previous,
     data,
@@ -327,20 +367,23 @@ function createOperation(current, collection, recordId, patch, options = {}) {
   if (!COLLECTIONS.includes(collection)) throw new Error('同步集合无效');
   if (typeof recordId !== 'string' || !/^(?!\.{1,2}$)[^/]{1,512}$/.test(recordId)) throw new Error('记录 ID 无效');
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('修改内容无效');
+  validatePatchFields(collection, patch);
   validateTextBoundary(collection, patch);
   const operation = {
     id: options.id || crypto.randomUUID(),
     collection,
     recordId,
     baseRevision: options.baseRevision ?? current?.revision ?? 0,
-    patch: clone(patch),
-    baseData: clone(options.baseData ?? current?.data ?? {}),
+    patch: safeData(patch),
+    baseData: safeData(options.baseData ?? current?.data ?? {}),
     deleted: options.deleted === true,
     restore: options.restore === true,
     ...(options.resolveIds ? { resolveIds: clone(options.resolveIds) } : {})
   };
   if (options.conflicts?.length) {
-    operation.conflicts = normalizeConflicts(options.conflicts, { ...current?.data, ...patch });
+    const data = safeData(current?.data);
+    for (const [field, value] of Object.entries(patch)) setOwn(data, field, clone(value));
+    operation.conflicts = normalizeConflicts(options.conflicts, data);
   }
   return operation;
 }
@@ -372,10 +415,11 @@ function conflictField(collection, field) {
 
 /** 合并单项离线操作，保护墓碑并保留笔记和总结的冲突版本。 */
 export function mergeOperation(record, operation) {
-  const previous = clone(record || newRecord({}));
+  validatePatchFields(operation.collection, operation.patch);
+  const previous = normalizeRecord(record || newRecord({}));
   if (previous.deleted && !operation.restore && !operation.deleted) return previous;
 
-  const result = clone(previous);
+  const result = normalizeRecord(previous);
   result.revision = (previous.revision || 0) + 1;
   result.deleted = operation.deleted === true ? true : operation.restore ? false : previous.deleted;
   result.conflicts ||= [];
@@ -400,7 +444,7 @@ export function mergeOperation(record, operation) {
       }
       continue;
     }
-    result.data[field] = clone(localValue);
+    setOwn(result.data, field, clone(localValue));
   }
   result.conflicts = normalizeConflicts([...result.conflicts, ...(operation.conflicts || [])], result.data);
   return result;
@@ -413,7 +457,7 @@ export function acknowledge(workspace, operationId, record) {
   if (!operation) return next;
   const current = next.remote[operation.collection][operation.recordId];
   if (!current || (record.revision || 0) >= (current.revision || 0)) {
-    setOwn(next.remote[operation.collection], operation.recordId, clone(record));
+    setOwn(next.remote[operation.collection], operation.recordId, normalizeRecord(record));
   }
   next.pending = next.pending.filter(item => item.id !== operationId);
   return next;
