@@ -13,6 +13,27 @@ import { acceptAuthMessage, isConfigured, isOwnerConfigured } from './auth-guard
 import { firebaseClient } from './firebase-client.js';
 
 export const AUTH_ACTIONS = new Set(['cloudLogin', 'cloudLogout', 'cloudStatus']);
+const AUTH_OFFSCREEN_PATH = 'offscreen/offscreen.html';
+
+/** 检查认证隐藏文档是否存在，兼容 Chrome 116 的 runtime.getContexts。 */
+export async function hasAuthOffscreenDocument(options = {}) {
+  const runtime = options.runtime || globalThis.chrome?.runtime;
+  const clientsApi = options.clientsApi === undefined ? globalThis.clients : options.clientsApi;
+  const documentUrl = runtime?.getURL?.(AUTH_OFFSCREEN_PATH);
+  if (!documentUrl) return false;
+  if (typeof runtime.getContexts === 'function') {
+    const contexts = await runtime.getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT'],
+      documentUrls: [documentUrl]
+    });
+    return contexts.length > 0;
+  }
+  if (typeof clientsApi?.matchAll === 'function') {
+    const clients = await clientsApi.matchAll();
+    return clients.some(client => client.url === documentUrl);
+  }
+  return false;
+}
 
 /** 创建可注入浏览器边界的认证服务，保证并发请求只打开一个登录流程。 */
 export function createAuthService(options = {}) {
@@ -20,6 +41,8 @@ export function createAuthService(options = {}) {
   const configValue = options.configValue || config;
   const extensionIdValue = options.extensionIdValue || extensionId;
   const offscreen = options.offscreen || globalThis.chrome?.offscreen;
+  const runtime = options.runtime || globalThis.chrome?.runtime;
+  const clientsApi = options.clientsApi === undefined ? globalThis.clients : options.clientsApi;
   const sendMessage = options.sendMessage || (message => globalThis.chrome.runtime.sendMessage(message));
   const randomUUID = options.randomUUID || (() => globalThis.crypto.randomUUID());
   const makeCredential = options.makeCredential || (token => GoogleAuthProvider.credential(token));
@@ -37,9 +60,9 @@ export function createAuthService(options = {}) {
       const requestId = randomUUID();
       let created = false;
       try {
-        if (await offscreen.hasDocument()) await offscreen.closeDocument();
+        if (await hasAuthOffscreenDocument({ runtime, clientsApi })) await offscreen.closeDocument();
         await offscreen.createDocument({
-          url: 'offscreen/offscreen.html',
+          url: AUTH_OFFSCREEN_PATH,
           reasons: ['IFRAME_SCRIPTING'],
           justification: '通过受控托管页面完成用户主动请求的 Google 登录'
         });
@@ -74,7 +97,12 @@ export function createAuthService(options = {}) {
   /** 订阅 Firebase Auth 状态，并拒绝已持久化的非所有者账号。 */
   function observe(callback) {
     const client = clientFactory();
-    if (!client) return () => {};
+    if (!client) {
+      queueMicrotask(() => {
+        void Promise.resolve(callback(null)).catch(() => {});
+      });
+      return () => {};
+    }
     return observeAuth(client.auth, async user => {
       if (user && configValue.ownerUid && user.uid !== configValue.ownerUid) {
         await signOutUser(client.auth);
@@ -98,9 +126,35 @@ export function authService() {
 
 /** 把 Firebase Auth 变化串行写入 LocalStore 的当前账号指针。 */
 export function bindAuthState({ service, store, logger = console }) {
-  return service.observe(user => store.update(state => activateAccount(state, user)).catch(error => {
-    logger.error('[评论收藏] 更新登录状态失败:', error);
-  }));
+  let resolveReady;
+  let rejectReady;
+  let waitingForInitialState = true;
+  const ready = new Promise((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+  // Service Worker 启动时即使初始化失败，也不产生未处理的 Promise 拒绝。
+  void ready.catch(() => {});
+  const unsubscribe = service.observe(async user => {
+    try {
+      await store.update(state => activateAccount(state, user));
+      if (waitingForInitialState) resolveReady();
+    } catch (error) {
+      logger.error('[评论收藏] 更新登录状态失败:', error);
+      if (waitingForInitialState) rejectReady(new Error('登录状态初始化失败，请重新加载扩展'));
+    } finally {
+      waitingForInitialState = false;
+    }
+  });
+  return { ready, unsubscribe };
+}
+
+/** 在 Firebase 首次认证状态落盘后，才分发任何账号范围消息。 */
+export function createAuthReadyDispatcher({ ready, dispatchLocal, dispatchAuth }) {
+  return async function dispatchReady(message) {
+    await ready;
+    return AUTH_ACTIONS.has(message?.action) ? dispatchAuth(message) : dispatchLocal(message);
+  };
 }
 
 /** 创建 cloudLogin、cloudLogout、cloudStatus 的后台分发器。 */

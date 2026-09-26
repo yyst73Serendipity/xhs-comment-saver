@@ -168,8 +168,11 @@ test('并发登录复用同一流程且始终关闭唯一隐藏文档', async ()
     clientFactory: () => ({ auth: {} }),
     configValue: { ownerUid: 'owner' },
     extensionIdValue: 'extension-id',
+    runtime: {
+      getURL: path => `chrome-extension://extension-id/${path}`,
+      getContexts: async () => []
+    },
     offscreen: {
-      hasDocument: async () => false,
       createDocument: async () => { created += 1; },
       closeDocument: async () => { closed += 1; }
     },
@@ -201,8 +204,11 @@ test('所有者 UID 不匹配时撤销登录并关闭隐藏文档', async () => 
     clientFactory: () => ({ auth: {} }),
     configValue: { ownerUid: 'owner' },
     extensionIdValue: 'extension-id',
+    runtime: {
+      getURL: path => `chrome-extension://extension-id/${path}`,
+      getContexts: async () => []
+    },
     offscreen: {
-      hasDocument: async () => false,
       createDocument: async () => {},
       closeDocument: async () => { closed += 1; }
     },
@@ -219,6 +225,75 @@ test('所有者 UID 不匹配时撤销登录并关闭隐藏文档', async () => 
   assert.equal(closed, 1);
 });
 
+test('Chrome 116 通过 runtime.getContexts 检查隐藏文档', async () => {
+  const { hasAuthOffscreenDocument } = await import('../auth/auth-service.js');
+  const calls = [];
+  const found = await hasAuthOffscreenDocument?.({
+    runtime: {
+      getURL: path => `chrome-extension://extension-id/${path}`,
+      getContexts: async query => {
+        calls.push(query);
+        return [{ contextType: 'OFFSCREEN_DOCUMENT' }];
+      }
+    },
+    clientsApi: null
+  });
+  assert.equal(found, true);
+  assert.deepEqual(calls, [{
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: ['chrome-extension://extension-id/offscreen/offscreen.html']
+  }]);
+});
+
+test('认证未就绪时账号消息等待首次状态并使用恢复后的账号', async () => {
+  const { bindAuthState, createAuthReadyDispatcher } = await import('../auth/auth-service.js');
+  const state = {
+    version: 2,
+    activeAccountUid: 'old-account',
+    guest: { marker: 'guest' },
+    accounts: Object.assign(Object.create(null), {
+      'old-account': { uid: 'old-account', email: '', workspace: { marker: 'old' } }
+    })
+  };
+  let authCallback;
+  const binding = bindAuthState({
+    service: { observe: callback => { authCallback = callback; return () => {}; } },
+    store: { update: async callback => callback(state) }
+  });
+  let dispatched = false;
+  const dispatch = createAuthReadyDispatcher?.({
+    ready: binding?.ready,
+    dispatchLocal: async () => {
+      dispatched = true;
+      return state.activeAccountUid;
+    },
+    dispatchAuth: async () => null
+  });
+  const pending = dispatch?.({ action: 'getComments' });
+  await Promise.resolve();
+  assert.equal(dispatched, false);
+  await authCallback({ uid: 'new-account', email: 'new@example.com' });
+  assert.equal(await pending, 'new-account');
+});
+
+test('未配置 Firebase 时首次认证状态会清除旧账号指针', async () => {
+  const { bindAuthState, createAuthService } = await import('../auth/auth-service.js');
+  const state = {
+    version: 2,
+    activeAccountUid: 'old-account',
+    guest: { marker: 'guest' },
+    accounts: Object.assign(Object.create(null), {
+      'old-account': { uid: 'old-account', email: '', workspace: { marker: 'old' } }
+    })
+  };
+  const binding = bindAuthState({
+    service: createAuthService({ clientFactory: () => null, configValue: {} }),
+    store: { update: async callback => callback(state) }
+  });
+  await binding?.ready;
+  assert.equal(state.activeAccountUid, null);
+});
+
 test('认证状态和登录退出动作通过 LocalStore 更新账号空间', async () => {
   const { createAuthDispatcher, bindAuthState } = await import('../auth/auth-service.js');
   const state = {
@@ -232,13 +307,14 @@ test('认证状态和登录退出动作通过 LocalStore 更新账号空间', as
     read: async () => state
   };
   let authCallback;
-  const unsubscribe = bindAuthState({
+  const binding = bindAuthState({
     service: { observe: callback => { authCallback = callback; return () => 'stopped'; } },
     store
   });
   await authCallback({ uid: 'owner', email: 'owner@example.com' });
+  await binding.ready;
   assert.equal(state.activeAccountUid, 'owner');
-  assert.equal(unsubscribe(), 'stopped');
+  assert.equal(binding.unsubscribe(), 'stopped');
 
   let loggedOut = 0;
   const dispatch = createAuthDispatcher({

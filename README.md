@@ -46,7 +46,8 @@
 - Service Worker 已统一通过账号存储层处理评论、分类和总结的读取与修改，并继续返回现有内容脚本和管理页可直接使用的卡片、分类及总结结构
 - 数据修改后会通知已打开的小红书页面重新读取收藏 ID 和组合键，无需刷新页面即可更新收藏标记；私人笔记和总结不会写入小红书页面 DOM
 - 已接入 Firebase Google 登录桥：Service Worker 通过唯一 offscreen 文档加载独立 Hosting 页面，托管页只向固定扩展来源返回短期 ID token，请求号、来源和 0～120 秒签发时间会被严格校验
-- `cloudLogin`、`cloudLogout`、`cloudStatus` 已统一进入后台认证入口；Firebase 会话变化通过串行 `LocalStore.update` 切换账号命名空间，退出登录只回到访客空间并保留账号本地数据
+- `cloudLogin`、`cloudLogout`、`cloudStatus` 已统一进入后台认证入口；Firebase 首次会话状态落盘前，账号范围消息会等待，避免 Service Worker 重启时误写上次账号空间；退出登录只回到访客空间并保留账号本地数据
+- 隐藏认证文档使用 Chrome 116 已支持的 `runtime.getContexts` 检查，不依赖仅在 Chrome 150 起提供的 `offscreen.hasDocument`
 - 配置 `ownerUid` 后会拒绝其他 Google 账号；没有 Firebase 本机配置时不会初始化 SDK 或创建登录文档，扩展继续以纯本地模式工作
 
 **AI 总结**

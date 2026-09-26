@@ -7,7 +7,8 @@ import {
   AUTH_ACTIONS,
   authService,
   bindAuthState,
-  createAuthDispatcher
+  createAuthDispatcher,
+  createAuthReadyDispatcher
 } from '../auth/auth-service.js';
 import { friendlyAuthError } from '../auth/auth-guard.js';
 
@@ -17,7 +18,12 @@ const authentication = authService();
 const dispatchAuth = createAuthDispatcher({ service: authentication, store });
 
 // Firebase 恢复或清除会话时，只切换活动命名空间，不删除任何账号工作区。
-bindAuthState({ service: authentication, store });
+const authBinding = bindAuthState({ service: authentication, store });
+const dispatchReady = createAuthReadyDispatcher({
+  ready: authBinding.ready,
+  dispatchLocal,
+  dispatchAuth
+});
 
 /** 首次安装或旧版升级时创建 v2 工作区和兼容投影。 */
 chrome.runtime.onInstalled.addListener(() => {
@@ -43,7 +49,7 @@ async function notifyDataChanged() {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target === 'auth-offscreen') return false;
   if (AUTH_ACTIONS.has(message?.action)) {
-    void dispatchAuth(message).then(data => {
+    void dispatchReady(message).then(data => {
       sendResponse({ success: true, data });
     }).catch(error => {
       console.error(`[评论收藏] ${message.action} 操作失败:`, error?.code || error?.name || 'unknown');
@@ -51,6 +57,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
-  void respondToLocalMessage(dispatchLocal, notifyDataChanged, message, sendResponse);
+  void respondToLocalMessage(dispatchReady, notifyDataChanged, message, sendResponse);
   return true;
 });
