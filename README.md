@@ -38,7 +38,9 @@
 - 评论依次使用小红书 `commentId`、可靠旧 `key`、帖子 URL 与正文或媒体组合生成稳定标识，旧本地 `id` 仅作为迁移兜底；标识统一检查 UTF-8 长度，过长或缺少帖子 URL 且无法兜底的记录会进入迁移问题清单
 - 分类使用稳定 ID，重命名分类不会改写评论关系，AI 总结按分类 ID 继续关联
 - 已建立旧数据迁移预览、访客数据按稳定分类 ID 和评论字段线性批量合并、笔记与总结冲突保留以及删除墓碑模型；操作字段经过集合白名单检查，动态数据使用无原型映射，过长或无法识别的旧记录会逐条隔离并显示中文原因
-- `chrome.storage.local` 仍将作为本地工作副本；Google 登录和 Firestore 传输将在后续任务接入
+- `chrome.storage.local` 作为本地工作副本，访客与每个 Google UID 使用独立命名空间；切换账号只切换当前空间，不会把访客数据或其他账号的待上传修改自动搬入
+- 访客修改只在本机落盘，不产生云端队列；登录账号的评论、分类、总结与顺序修改会进入独立待上传队列，导入数据也遵循同一规则
+- 本地写入通过串行存储层提交，版本化状态和旧界面兼容投影在同一次 `chrome.storage.local.set` 中更新；Google 登录和 Firestore 传输将在后续任务接入
 
 **AI 总结**
 - 右侧面板上半部分，按分类存储 Markdown 总结笔记
@@ -73,7 +75,9 @@ xhs-comment-saver/
 ├── scripts/
 │   └── build.js                  # 生成可加载扩展并保留固定扩展 ID
 ├── storage/
-│   └── model.js                  # 评论、分类、总结的版本化模型与旧数据迁移
+│   ├── model.js                  # 评论、分类、总结的版本化模型与旧数据迁移
+│   ├── account-state.js          # 访客/账号命名空间和统一业务动作
+│   └── local-store.js            # 串行原子保存状态与兼容投影
 ├── assets/                       # 静态资源
 │   ├── icon-16.png               # 扩展图标 16x16
 │   ├── icon-48.png               # 扩展图标 48x48
@@ -95,8 +99,10 @@ xhs-comment-saver/
 │   ├── auth-config.test.js       # Firebase 配置和 Manifest 权限测试
 │   ├── api-config.test.js        # AI 配置迁移和 API 来源边界测试
 │   ├── build-output.test.js      # 构建产物、固定 ID 与敏感文件边界测试
-│   ├── readme-upgrade.test.js     # 升级前导出与恢复顺序契约测试
-│   ├── sync-model.test.js         # 稳定标识、迁移、合并、冲突与墓碑测试
+│   ├── readme-upgrade.test.js    # 升级前导出与恢复顺序契约测试
+│   ├── sync-model.test.js        # 稳定标识、迁移、合并、冲突与墓碑测试
+│   ├── account-state.test.js     # 账号隔离、导入排队和业务动作测试
+│   ├── storage-layout.test.js    # 串行原子写入与单副本边界测试
 │   └── storage.test.html         # 存储操作单元测试
 
 ```
