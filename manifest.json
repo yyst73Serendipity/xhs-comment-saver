@@ -12,15 +12,22 @@
   },
 
   "permissions": [
-    "storage"
+    "storage",
+    "unlimitedStorage",
+    "alarms",
+    "offscreen"
   ],
 
   "host_permissions": [
-    "*://*.xiaohongshu.com/*"
+    "*://*.xiaohongshu.com/*",
+    "https://*.googleapis.com/*",
+    "https://*.firebaseapp.com/*",
+    "https://*.web.app/*"
   ],
 
   "background": {
-    "service_worker": "background/background.js"
+    "service_worker": "background/background.js",
+    "type": "module"
   },
 
   "content_scripts": [

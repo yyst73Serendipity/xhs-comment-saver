@@ -1,6 +1,6 @@
 # 小红书评论收藏
 
-浏览小红书时收藏和分类用户评论的 Chrome 浏览器插件（Manifest V3）。
+浏览小红书时收藏和分类用户评论的 Chrome 浏览器插件（Manifest V3），并已建立 Google 账号云同步所需的构建与配置基础。
 
 ## 功能
 
@@ -56,8 +56,16 @@
 
 ```
 xhs-comment-saver/
+├── package.json                  # 测试、构建、模拟器与部署命令
 ├── manifest.json                 # Chrome 扩展配置（Manifest V3）
 ├── .env.example                  # API Key 配置模板
+├── auth/
+│   └── auth-guard.js             # Firebase 配置检查和中文错误转换
+├── config/
+│   ├── firebase-config.js        # 构建期 Firebase 公共配置入口
+│   └── firebase.example.json     # Firebase 本机配置示例
+├── scripts/
+│   └── build.js                  # 生成可加载扩展并保留固定扩展 ID
 ├── assets/                       # 静态资源
 │   ├── icon-16.png               # 扩展图标 16x16
 │   ├── icon-48.png               # 扩展图标 48x48
@@ -74,6 +82,7 @@ xhs-comment-saver/
 │   ├── apiconfig.js              # LLM API 提供商预设（Anthropic / OpenAI / MiniMax / DeepSeek）
 │   └── apiconfig.json            # 用户 API 配置（activeProvider、参数）
 ├── tests/                        # 测试文件
+│   ├── auth-config.test.js       # Firebase 配置和 Manifest 权限测试
 │   └── storage.test.html         # 存储操作单元测试
 
 ```
@@ -84,9 +93,10 @@ xhs-comment-saver/
 
 1. 打开 Chrome，地址栏输入 `chrome://extensions` 并回车
 2. 右上角开启「开发者模式」
-3. 点击「加载已解压的扩展程序」
-4. 选择 `xhs-comment-saver` 项目根目录，确认
-5. 扩展图标出现在浏览器工具栏，即安装成功
+3. 在项目目录运行 `npm install` 和 `npm run build`
+4. 点击「加载已解压的扩展程序」
+5. 选择 `xhs-comment-saver/dist/extension`，确认
+6. 扩展图标出现在浏览器工具栏，即安装成功
 
 ### 使用
 
@@ -105,12 +115,19 @@ xhs-comment-saver/
 
 ### 运行测试
 
-在浏览器中打开 `chrome-extension://<扩展ID>/tests/storage.test.html`，点击「运行全部测试」。
+运行 `npm test` 执行 Node.js 自动测试。原有浏览器存储测试仍可在源码模式下打开 `chrome-extension://<扩展ID>/tests/storage.test.html` 执行。
+
+### Firebase 构建配置
+
+复制 `config/firebase.example.json` 为 `config/firebase.local.json` 并填写独立 Firebase 项目的公开客户端配置。此本机文件已被 Git 忽略；未创建时仍可运行 `npm run build`，扩展会以本地模式构建。Google 登录和云同步将在后续任务接入。
 
 ## 技术栈
 
 - Chrome Extension Manifest V3
 - 纯 HTML / CSS / JavaScript（无框架依赖）
+- Firebase Web SDK（Google 登录与 Firestore 云同步基础）
+- esbuild（生成 `dist/extension` 可加载目录）
+- Node.js 原生测试运行器、Firebase Emulator 测试工具
 - Canvas 2D（河流图 / 网格图 / 关系图谱绘制）
 - 力导向布局算法（Fruchterman-Reingold 简化版）
 - chrome.storage.local 本地存储

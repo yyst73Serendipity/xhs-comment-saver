@@ -30,3 +30,14 @@ uidraft/
 
 # Codex 项目说明
 AGENTS.md
+
+# Firebase 本机配置与缓存
+config/firebase.local.json
+.firebase/
+.firebaserc
+firebase-debug.log
+
+# 构建产物
+dist/
+build/
+*.tsbuildinfo
