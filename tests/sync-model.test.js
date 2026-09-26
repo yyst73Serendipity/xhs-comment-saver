@@ -301,3 +301,40 @@ test('访客合并把新增数据与冲突内容放入账号操作队列', async
   const summaryOp = result.pending.find(item => item.collection === 'summaries');
   assert.equal(model.mergeOperation(account.remote.summaries[summaryOp.recordId], summaryOp).conflicts[0].local, '本地总结');
 });
+
+test('重复旧笔记从预览到访客迁移确认后仍保留冲突', async () => {
+  const guest = await model.migrateLegacy([
+    { commentId: 'legacy-notes', text: '正文', note: '旧笔记', savedAt: 1 },
+    { commentId: 'legacy-notes', text: '正文', note: '新笔记', savedAt: 2 }
+  ], ['未分类'], {});
+  const account = model.emptyWorkspace();
+
+  assert.equal(model.migrationPreview(guest, account).noteConflicts, 1);
+  let merged = model.mergeGuest(guest, account);
+  const operation = merged.pending.find(item => item.collection === 'comments' && item.recordId === 'comment-legacy-notes');
+  assert.equal(model.visibleRecords(merged).comments['comment-legacy-notes'].conflicts[0].local, '旧笔记');
+
+  const cloudRecord = model.mergeOperation(undefined, operation);
+  merged = model.acknowledge(merged, operation.id, cloudRecord);
+  assert.equal(model.visibleRecords(merged).comments['comment-legacy-notes'].conflicts[0].local, '旧笔记');
+});
+
+test('导入操作携带的冲突仍受数量与文本边界限制', () => {
+  const conflicts = Array.from({ length: 7 }, (_, index) => ({
+    id: `legacy-${index}`,
+    field: 'note',
+    local: `${index}${'字'.repeat(100_010)}`
+  }));
+  const workspace = model.enqueueOperation(
+    model.emptyWorkspace(),
+    'comments',
+    'comment-imported',
+    { text: '正文', note: '当前笔记' },
+    { conflicts }
+  );
+
+  const operation = workspace.pending[0];
+  const record = model.mergeOperation(undefined, operation);
+  assert.equal(record.conflicts.length, 5);
+  assert.equal(record.conflicts.at(-1).local.length, 100_000);
+});

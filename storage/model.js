@@ -16,6 +16,18 @@ const same = (left, right) => JSON.stringify(left ?? null) === JSON.stringify(ri
 const newRecord = data => ({ data, revision: 0, deleted: false, conflicts: [] });
 const clone = value => structuredClone(value);
 
+function normalizeConflicts(conflicts, data = {}) {
+  const unique = [];
+  for (const conflict of Array.isArray(conflicts) ? conflicts : []) {
+    if (!conflict || !['note', 'content'].includes(conflict.field)) continue;
+    const local = String(conflict.local ?? '').slice(0, MAX_CONFLICT_TEXT_LENGTH);
+    if (!local || same(local, data[conflict.field])) continue;
+    if (unique.some(item => item.field === conflict.field && item.local === local)) continue;
+    unique.push({ id: conflict.id || crypto.randomUUID(), field: conflict.field, local });
+  }
+  return unique.slice(-MAX_CONFLICTS);
+}
+
 /** 创建不包含任何账号数据的同步工作区。 */
 export function emptyWorkspace() {
   return {
@@ -191,12 +203,14 @@ export function visibleRecords(workspace) {
     if (!COLLECTIONS.includes(operation.collection)) continue;
     const previous = records[operation.collection][operation.recordId] || newRecord({});
     if (previous.deleted && !operation.restore && !operation.deleted) continue;
-    const conflicts = operation.resolveIds
+    const unresolved = operation.resolveIds
       ? previous.conflicts.filter(conflict => !operation.resolveIds.includes(conflict.id))
       : previous.conflicts;
+    const data = { ...previous.data, ...clone(operation.patch) };
+    const conflicts = normalizeConflicts([...unresolved, ...(operation.conflicts || [])], data);
     records[operation.collection][operation.recordId] = {
       ...previous,
-      data: { ...previous.data, ...clone(operation.patch) },
+      data,
       deleted: operation.deleted === true ? true : operation.restore ? false : previous.deleted,
       conflicts
     };
@@ -253,7 +267,7 @@ export function enqueueOperation(workspace, collection, recordId, patch, options
   validateTextBoundary(collection, patch);
   const next = clone(workspace);
   const current = visibleRecords(workspace)[collection][recordId];
-  next.pending.push({
+  const operation = {
     id: options.id || crypto.randomUUID(),
     collection,
     recordId,
@@ -263,7 +277,11 @@ export function enqueueOperation(workspace, collection, recordId, patch, options
     deleted: options.deleted === true,
     restore: options.restore === true,
     ...(options.resolveIds ? { resolveIds: clone(options.resolveIds) } : {})
-  });
+  };
+  if (options.conflicts?.length) {
+    operation.conflicts = normalizeConflicts(options.conflicts, { ...current?.data, ...patch });
+  }
+  next.pending.push(operation);
   return next;
 }
 
@@ -304,6 +322,7 @@ export function mergeOperation(record, operation) {
     }
     result.data[field] = clone(localValue);
   }
+  result.conflicts = normalizeConflicts([...result.conflicts, ...(operation.conflicts || [])], result.data);
   return result;
 }
 
@@ -338,16 +357,24 @@ export function migrationPreview(guest, account) {
   const cloudSummariesByName = new Map(activeEntries(cloud, 'summaries').map(([id, value]) => [categoryNamesById(cloud)[id], value]));
   const localSummaries = activeEntries(local, 'summaries').filter(([id]) => localNames[id]);
   const duplicates = localComments.filter(([id]) => cloudComments.has(id));
+  let noteConflicts = 0;
+  for (const [id, value] of localComments) {
+    const baseline = cloudComments.get(id)?.data.note ?? value.data.note;
+    const alternatives = new Set(
+      (value.conflicts || [])
+        .filter(conflict => conflict.field === 'note' && conflict.local && conflict.local !== baseline)
+        .map(conflict => conflict.local)
+    );
+    if (cloudComments.has(id) && value.data.note && value.data.note !== baseline) alternatives.add(value.data.note);
+    noteConflicts += alternatives.size;
+  }
   return {
     comments: localComments.length,
     categories: activeEntries(local, 'categories').filter(([id]) => id !== 'uncategorized').length,
     summaries: localSummaries.length,
     duplicates: duplicates.length,
     additions: localComments.length - duplicates.length,
-    noteConflicts: duplicates.filter(([id, value]) => {
-      const cloudNote = cloudComments.get(id).data.note;
-      return value.data.note && cloudNote && value.data.note !== cloudNote;
-    }).length,
+    noteConflicts,
     summaryConflicts: localSummaries.filter(([id, value]) => {
       const cloudValue = cloudSummariesByName.get(localNames[id]);
       return value.data.content && cloudValue?.data.content && value.data.content !== cloudValue.data.content;
@@ -379,12 +406,14 @@ export function mergeGuest(guest, account) {
       result = enqueueOperation(result, 'comments', id, {
         ...comment.data,
         categoryId: mapping[comment.data.categoryId] || 'uncategorized'
-      }, { restore: existing?.deleted === true });
-    } else if (comment.data.note && comment.data.note !== existing.data.note) {
-      result = enqueueOperation(result, 'comments', id, { note: comment.data.note }, {
+      }, { restore: existing?.deleted === true, conflicts: comment.conflicts });
+    } else if ((comment.data.note && comment.data.note !== existing.data.note) || comment.conflicts?.length) {
+      const patch = comment.data.note && comment.data.note !== existing.data.note ? { note: comment.data.note } : {};
+      result = enqueueOperation(result, 'comments', id, patch, {
         // 访客数据没有云端共同祖先，使用早于当前快照的版本让事务保留双方笔记。
         baseRevision: (existing.revision || 0) - 1,
-        baseData: { note: '' }
+        baseData: { note: '' },
+        conflicts: comment.conflicts
       });
     }
   }
@@ -397,12 +426,19 @@ export function mergeGuest(guest, account) {
     if (!targetId) continue;
     const existing = current.summaries[targetId];
     if (!existing || existing.deleted) {
-      result = enqueueOperation(result, 'summaries', targetId, summary.data, { restore: existing?.deleted === true });
-    } else if (summary.data.content && summary.data.content !== existing.data.content) {
-      result = enqueueOperation(result, 'summaries', targetId, { content: summary.data.content }, {
+      result = enqueueOperation(result, 'summaries', targetId, summary.data, {
+        restore: existing?.deleted === true,
+        conflicts: summary.conflicts
+      });
+    } else if ((summary.data.content && summary.data.content !== existing.data.content) || summary.conflicts?.length) {
+      const patch = summary.data.content && summary.data.content !== existing.data.content
+        ? { content: summary.data.content }
+        : {};
+      result = enqueueOperation(result, 'summaries', targetId, patch, {
         // 访客总结与账号总结来自独立空间，应明确进入冲突解决流程。
         baseRevision: (existing.revision || 0) - 1,
-        baseData: { content: '' }
+        baseData: { content: '' },
+        conflicts: summary.conflicts
       });
     }
   }
