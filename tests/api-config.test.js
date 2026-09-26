@@ -3,7 +3,6 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
@@ -38,16 +37,9 @@ test('只接受四个服务商各自已授权的 API 来源', async () => {
   );
 });
 
-test('同一固定扩展 ID 迁移后构建版直接从本机存储读取', async () => {
+test('同一源码加载路径可把旧配置迁移到当前安装实例', async () => {
   const context = await loadApiModules();
-  const manifest = JSON.parse(await readFile('manifest.json', 'utf8'));
-  const extensionId = createHash('sha256')
-    .update(Buffer.from(manifest.key, 'base64'))
-    .digest('hex')
-    .slice(0, 32)
-    .replace(/[0-9a-f]/g, value => String.fromCharCode(97 + Number.parseInt(value, 16)));
-  const storageByExtensionId = new Map([[extensionId, {}]]);
-  const bucket = storageByExtensionId.get(extensionId);
+  const bucket = {};
   const storage = {
     async get(key) { return { [key]: bucket[key] }; },
     async set(value) { Object.assign(bucket, value); }
@@ -76,21 +68,18 @@ test('同一固定扩展 ID 迁移后构建版直接从本机存储读取', asyn
   const migrated = await context.XHS_API_CONFIG_STORE.readApiConfig({ storage, fetchResource: sourceFetch });
   assert.equal(migrated.migrated, true);
   assert.equal(migrated.value.providers.deepseek.apiKey, 'secret-key');
+  assert.equal(bucket.xhs_api_config.providers.deepseek.apiKey, 'secret-key');
+});
+
+test('构建版首次安装不读取旧文件并可保存本机配置', async () => {
+  const context = await loadApiModules();
+  const bucket = {};
+  const storage = {
+    async get(key) { return { [key]: bucket[key] }; },
+    async set(value) { Object.assign(bucket, value); }
+  };
 
   let distFetchCount = 0;
-  const loadedInDist = await context.XHS_API_CONFIG_STORE.readApiConfig({
-    storage,
-    allowLegacy: false,
-    fetchResource: async () => {
-      distFetchCount += 1;
-      throw new Error('构建版不应读取旧配置文件');
-    }
-  });
-  assert.equal(loadedInDist.migrated, false);
-  assert.equal(loadedInDist.value.providers.deepseek.apiKey, 'secret-key');
-  assert.equal(distFetchCount, 0);
-
-  delete bucket.xhs_api_config;
   const emptyDist = await context.XHS_API_CONFIG_STORE.readApiConfig({
     storage,
     allowLegacy: false,
@@ -100,5 +89,28 @@ test('同一固定扩展 ID 迁移后构建版直接从本机存储读取', asyn
     }
   });
   assert.equal(emptyDist.value, null);
+  assert.equal(distFetchCount, 0);
+
+  const enteredInDist = {
+    activeProvider: 'deepseek',
+    providers: {
+      deepseek: {
+        apiKey: 'new-install-key',
+        baseUrl: 'https://api.deepseek.com/chat/completions',
+        model: 'deepseek-chat'
+      }
+    }
+  };
+  await storage.set({ [context.XHS_API_CONFIG_STORE.STORAGE_KEY]: enteredInDist });
+  const loadedInDist = await context.XHS_API_CONFIG_STORE.readApiConfig({
+    storage,
+    allowLegacy: false,
+    fetchResource: async () => {
+      distFetchCount += 1;
+      throw new Error('构建版不应读取旧配置文件');
+    }
+  });
+  assert.equal(loadedInDist.value.providers.deepseek.apiKey, 'new-install-key');
+  assert.equal(context.XHS_API_CONFIG_CORE.normalizeApiConfig(loadedInDist.value).provider, 'deepseek');
   assert.equal(distFetchCount, 0);
 });

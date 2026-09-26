@@ -118,9 +118,11 @@ xhs-comment-saver/
 3. 配置仅写入当前浏览器的 `chrome.storage.local`，不会进入 Git、构建产物或 Firebase
 4. 选择具体分类后点击 🤖 即可生成 AI 总结
 
-从旧版源码升级时，必须在切换到 `dist/extension` 前完成一次迁移：先让 Chrome 继续加载项目源码根目录，更新代码并重新加载扩展，然后打开管理页一次；看到“旧版 AI 配置已迁移到本机存储”提示后，再运行 `npm run build` 并切换到 `dist/extension`。源码版与构建版使用同一固定扩展 ID，构建版会从该 ID 对应的 `chrome.storage.local` 读取迁移结果。
+首次从源码加载目录切换到 `dist/extension` 时，通常需要卸载并重新加载扩展，而卸载可能清除 `chrome.storage.local`。因此切换完成后，请在构建版管理页点击顶部「AI 配置」，重新输入一次 API Key 和服务商；之后配置会保存在当前安装实例中。
 
-构建产物不会包含或直接读取 `.env`、`manager/apiconfig.json`、`manager/apiconfig.local.json`。如果没有看到迁移成功提示，请在构建版管理页点击顶部「AI 配置」重新输入；不要把密钥复制进项目文件。
+如果始终沿用同一个源码加载路径，只更新代码并点击 Chrome 的“重新加载”，新版管理页可以把旧 `.env` 与 `manager/apiconfig.json`（或 `manager/apiconfig.local.json`）迁移到该安装实例的本机存储，并显示迁移成功提示。此便利迁移不适用于卸载后切换目录。
+
+构建产物不会包含或直接读取上述旧配置文件。不要把密钥复制进构建目录、Git 或 Firebase。
 
 ### 运行测试
 
