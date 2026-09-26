@@ -52,6 +52,35 @@ test('平台 commentId 会转义路径分隔符', async () => {
   assert.equal(identity.includes('/'), false);
 });
 
+test('评论身份依次使用 commentId、旧 key、内容组合与旧 id 兜底', async () => {
+  const withCommentId = await model.commentIdentity({ commentId: '123', key: 'legacy-key', text: '正文', author: '甲' });
+  const withKey = await model.commentIdentity({ key: 'legacy-key', text: '正文', author: '甲' });
+  const withComposite = await model.commentIdentity({ postUrl: 'https://www.xiaohongshu.com/explore/1', text: '正文' });
+  const withMedia = await model.commentIdentity({ postUrl: 'https://www.xiaohongshu.com/explore/1', images: ['https://img/1'] });
+  const withLegacyId = await model.commentIdentity({ id: 'old-local-id' });
+
+  assert.equal(withCommentId, 'comment-123');
+  assert.match(withKey, /^key-[a-f0-9]{64}$/);
+  assert.match(withComposite, /^fallback-[a-f0-9]{64}$/);
+  assert.notEqual(withComposite, withMedia);
+  assert.match(withLegacyId, /^legacy-[a-f0-9]{64}$/);
+});
+
+test('无法唯一识别的新评论会被拒绝且旧迁移会记录问题', async () => {
+  await assert.rejects(() => model.commentIdentity({ author: '只有作者' }), /缺少可用于去重的稳定标识/);
+  await assert.rejects(() => model.commentIdentity({ postUrl: 'https://www.xiaohongshu.com/explore/1' }), /缺少可用于去重的稳定标识/);
+
+  const space = await model.migrateLegacy([
+    { author: '只有作者' },
+    { postUrl: 'https://www.xiaohongshu.com/explore/1' },
+    { id: 'old-a' },
+    { id: 'old-b' }
+  ], ['未分类'], {});
+  assert.equal(Object.keys(space.remote.comments).length, 2);
+  assert.equal(space.migrationIssues.length, 2);
+  assert.match(space.migrationIssues[0].reason, /缺少可用于去重的稳定标识/);
+});
+
 test('重复 fallback 标识只迁移最新评论', async () => {
   const comments = [
     { postUrl: 'https://www.xiaohongshu.com/explore/1', author: '甲', text: '内容', savedAt: 1 },
@@ -141,6 +170,28 @@ test('默认分类 ID 固定且自定义分类使用 UUID', async () => {
   assert.equal(space.remote.categories.funny.data.name, '搞笑');
   const customId = Object.keys(space.remote.categories).find(id => space.remote.categories[id].data.name === '学习');
   assert.match(customId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+});
+
+test('特殊分类名称不会污染原型且评论、顺序和总结投影均正确', async () => {
+  const summaries = Object.create(null);
+  summaries.__proto__ = { content: '原型总结' };
+  summaries.constructor = { content: '构造器总结' };
+  summaries.prototype = { content: '属性总结' };
+  const space = await model.migrateLegacy([
+    { commentId: 'proto', text: '一', category: '__proto__' },
+    { commentId: 'constructor', text: '二', category: 'constructor' },
+    { commentId: 'prototype', text: '三', category: 'prototype' }
+  ], ['未分类', '__proto__', 'constructor', 'prototype'], summaries);
+  const projection = model.project(space);
+
+  assert.equal(Object.getPrototypeOf(projection.summaries), null);
+  assert.deepEqual(new Set(projection.comments.map(item => item.category)), new Set(['__proto__', 'constructor', 'prototype']));
+  assert.deepEqual(projection.categories, ['未分类', '__proto__', 'constructor', 'prototype']);
+  assert.equal(projection.summaries.__proto__.content, '原型总结');
+  assert.equal(projection.summaries.constructor.content, '构造器总结');
+  assert.equal(projection.summaries.prototype.content, '属性总结');
+  assert.equal(space.remote.settings.main.data.categoryOrder.length, 4);
+  assert.equal({}.content, undefined);
 });
 
 test('分类重命名不改评论关系且总结按 categoryId 跟随', async () => {
@@ -540,4 +591,31 @@ test('导入操作携带的冲突仍受数量与文本边界限制', () => {
   const record = model.mergeOperation(undefined, operation);
   assert.equal(record.conflicts.length, 5);
   assert.equal(record.conflicts.at(-1).local.length, 100_000);
+});
+
+test('访客大批量迁移只克隆一次完整工作区并线性追加操作', async () => {
+  const comments = Array.from({ length: 2_000 }, (_, index) => ({
+    commentId: String(index + 1),
+    text: `评论 ${index + 1}`
+  }));
+  const guest = await model.migrateLegacy(comments, ['未分类'], {});
+  const account = model.emptyWorkspace();
+  const originalStructuredClone = globalThis.structuredClone;
+  let workspaceCloneCount = 0;
+  globalThis.structuredClone = value => {
+    if (value?.remote && Array.isArray(value.pending) && value.cursors) workspaceCloneCount += 1;
+    return originalStructuredClone(value);
+  };
+  const startedAt = performance.now();
+  let merged;
+  try {
+    merged = model.mergeGuest(guest, account);
+  } finally {
+    globalThis.structuredClone = originalStructuredClone;
+  }
+
+  assert.equal(workspaceCloneCount, 1);
+  assert.equal(merged.pending.filter(item => item.collection === 'comments').length, 2_000);
+  assert.equal(Object.keys(account.remote.comments).length, 0);
+  assert.equal(performance.now() - startedAt < 5_000, true);
 });

@@ -16,6 +16,16 @@ const same = (left, right) => JSON.stringify(left ?? null) === JSON.stringify(ri
 const newRecord = data => ({ data, revision: 0, deleted: false, conflicts: [] });
 const clone = value => structuredClone(value);
 
+function safeRecordMap(source = {}) {
+  const target = Object.create(null);
+  for (const [key, value] of Object.entries(source)) target[key] = value;
+  return target;
+}
+
+function setOwn(target, key, value) {
+  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
 function normalizeConflicts(conflicts, data = {}) {
   const unique = [];
   for (const conflict of Array.isArray(conflicts) ? conflicts : []) {
@@ -32,7 +42,12 @@ function normalizeConflicts(conflicts, data = {}) {
 /** 创建不包含任何账号数据的同步工作区。 */
 export function emptyWorkspace() {
   return {
-    remote: { comments: {}, categories: {}, summaries: {}, settings: {} },
+    remote: {
+      comments: Object.create(null),
+      categories: Object.create(null),
+      summaries: Object.create(null),
+      settings: Object.create(null)
+    },
     pending: [],
     cursors: { comments: null, categories: null, summaries: null, settings: null },
     lastSync: 0,
@@ -66,9 +81,31 @@ export async function commentIdentity(comment) {
     const safeId = encodeURIComponent(platformId).replace(/%[0-9A-F]{2}/g, value => value.toLowerCase());
     return `comment-${safeId}`;
   }
-  const input = [normalizePostUrl(comment?.postUrl), normalizeText(comment?.author), normalizeText(comment?.text)].join('\u001f');
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
-  return `fallback-${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')}`;
+  const hash = async (prefix, input) => {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+    return `${prefix}-${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')}`;
+  };
+  const legacyKey = typeof comment?.key === 'string' ? comment.key.trim() : '';
+  if (legacyKey) return hash('key', legacyKey);
+
+  const postUrl = normalizePostUrl(comment?.postUrl);
+  const author = normalizeText(comment?.author);
+  const text = normalizeText(comment?.text);
+  const images = Array.isArray(comment?.images) ? comment.images.map(normalizeText).filter(Boolean) : [];
+  const audio = Array.isArray(comment?.audio)
+    ? comment.audio.map(normalizeText).filter(Boolean)
+    : [normalizeText(comment?.audio)].filter(Boolean);
+  const hasContext = Boolean(postUrl || author);
+  const hasContent = Boolean(text || images.length || audio.length);
+  if (hasContext && hasContent) {
+    return hash('fallback', [postUrl, author, text, JSON.stringify(images), JSON.stringify(audio)].join('\u001f'));
+  }
+
+  const legacyId = typeof comment?.id === 'string' || typeof comment?.id === 'number'
+    ? String(comment.id).trim()
+    : '';
+  if (legacyId) return hash('legacy', legacyId);
+  throw new Error('评论缺少可用于去重的稳定标识');
 }
 
 function categoryName(value) {
@@ -78,7 +115,9 @@ function categoryName(value) {
 
 function validLegacyComment(comment) {
   if (!comment || typeof comment !== 'object' || Array.isArray(comment)) return false;
-  return [comment.commentId, comment.text, comment.author, comment.postUrl].some(value => String(value ?? '').trim());
+  return [comment.commentId, comment.key, comment.id, comment.text, comment.author, comment.postUrl, comment.audio]
+    .some(value => String(value ?? '').trim())
+    || Array.isArray(comment.images) && comment.images.length > 0;
 }
 
 function validateTextBoundary(collection, patch) {
@@ -152,20 +191,20 @@ export async function migrateLegacy(comments = [], categories = DEFAULT_CATEGORI
   const workspace = emptyWorkspace();
   const suppliedNames = Array.isArray(categories) ? categories.map(categoryName).filter(Boolean) : [];
   const names = [...new Set(['未分类', ...suppliedNames])];
-  const idsByName = {};
+  const idsByName = new Map();
 
   for (const name of names) {
     const id = DEFAULT_CATEGORY_IDS.get(name) || crypto.randomUUID();
-    idsByName[name] = id;
+    idsByName.set(name, id);
     workspace.remote.categories[id] = newRecord({ name });
   }
-  workspace.remote.settings.main = newRecord({ categoryOrder: names.map(name => idsByName[name]) });
+  workspace.remote.settings.main = newRecord({ categoryOrder: names.map(name => idsByName.get(name)) });
 
   for (const source of Array.isArray(comments) ? comments : []) {
     if (!validLegacyComment(source)) continue;
     try {
       const sourceCategory = categoryName(source.category);
-      const categoryId = sourceCategory ? idsByName[sourceCategory] || 'uncategorized' : '';
+      const categoryId = sourceCategory ? idsByName.get(sourceCategory) || 'uncategorized' : '';
       const data = legacyCommentData(source, categoryId);
       validateTextBoundary('comments', data);
       const id = await commentIdentity(source);
@@ -185,7 +224,7 @@ export async function migrateLegacy(comments = [], categories = DEFAULT_CATEGORI
 
   if (summaries && typeof summaries === 'object' && !Array.isArray(summaries)) {
     for (const [name, legacySummary] of Object.entries(summaries)) {
-      const id = idsByName[categoryName(name)];
+      const id = idsByName.get(categoryName(name));
       if (!id || legacySummary == null) continue;
       try {
         const data = typeof legacySummary === 'string' ? { content: legacySummary } : clone(legacySummary);
@@ -206,24 +245,29 @@ export async function migrateLegacy(comments = [], categories = DEFAULT_CATEGORI
 
 /** 依次重放本地待上传操作，生成当前界面应看到的记录。 */
 export function visibleRecords(workspace) {
-  const records = clone(workspace.remote);
+  const snapshot = clone(workspace.remote);
+  const records = Object.fromEntries(COLLECTIONS.map(collection => [collection, safeRecordMap(snapshot[collection])]));
   for (const operation of workspace.pending || []) {
     if (!COLLECTIONS.includes(operation.collection)) continue;
     const previous = records[operation.collection][operation.recordId] || newRecord({});
-    if (previous.deleted && !operation.restore && !operation.deleted) continue;
-    const unresolved = operation.resolveIds
-      ? previous.conflicts.filter(conflict => !operation.resolveIds.includes(conflict.id))
-      : previous.conflicts;
-    const data = { ...previous.data, ...clone(operation.patch) };
-    const conflicts = normalizeConflicts([...unresolved, ...(operation.conflicts || [])], data);
-    records[operation.collection][operation.recordId] = {
-      ...previous,
-      data,
-      deleted: operation.deleted === true ? true : operation.restore ? false : previous.deleted,
-      conflicts
-    };
+    const applied = applyVisibleOperation(previous, operation);
+    if (applied !== previous) setOwn(records[operation.collection], operation.recordId, applied);
   }
   return records;
+}
+
+function applyVisibleOperation(previous, operation) {
+  if (previous.deleted && !operation.restore && !operation.deleted) return previous;
+  const unresolved = operation.resolveIds
+    ? previous.conflicts.filter(conflict => !operation.resolveIds.includes(conflict.id))
+    : previous.conflicts;
+  const data = { ...previous.data, ...clone(operation.patch) };
+  return {
+    ...previous,
+    data,
+    deleted: operation.deleted === true ? true : operation.restore ? false : previous.deleted,
+    conflicts: normalizeConflicts([...unresolved, ...(operation.conflicts || [])], data)
+  };
 }
 
 function orderedCategories(records) {
@@ -245,7 +289,8 @@ function orderedCategories(records) {
 export function project(workspace) {
   const records = visibleRecords(workspace);
   const activeCategories = orderedCategories(records);
-  const namesById = Object.fromEntries(activeCategories.map(([id, value]) => [id, value.data.name]));
+  const namesById = Object.create(null);
+  for (const [id, value] of activeCategories) namesById[id] = value.data.name;
   const comments = Object.entries(records.comments)
     .filter(([, value]) => !value.deleted)
     .map(([id, value]) => ({
@@ -256,7 +301,7 @@ export function project(workspace) {
       noteConflicts: clone(value.conflicts || []).filter(conflict => conflict.field === 'note')
     }))
     .sort((left, right) => (right.savedAt || 0) - (left.savedAt || 0) || left.id.localeCompare(right.id));
-  const projectedSummaries = {};
+  const projectedSummaries = Object.create(null);
   for (const [id, value] of Object.entries(records.summaries)) {
     if (value.deleted || !namesById[id]) continue;
     projectedSummaries[namesById[id]] = {
@@ -271,12 +316,18 @@ export function project(workspace) {
 
 /** 创建带基准快照的不可变本地操作，供后续三方合并。 */
 export function enqueueOperation(workspace, collection, recordId, patch, options = {}) {
+  const current = visibleRecords(workspace)[collection]?.[recordId];
+  const operation = createOperation(current, collection, recordId, patch, options);
+  const next = clone(workspace);
+  next.pending.push(operation);
+  return next;
+}
+
+function createOperation(current, collection, recordId, patch, options = {}) {
   if (!COLLECTIONS.includes(collection)) throw new Error('同步集合无效');
   if (typeof recordId !== 'string' || !/^(?!\.{1,2}$)[^/]{1,512}$/.test(recordId)) throw new Error('记录 ID 无效');
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('修改内容无效');
   validateTextBoundary(collection, patch);
-  const next = clone(workspace);
-  const current = visibleRecords(workspace)[collection][recordId];
   const operation = {
     id: options.id || crypto.randomUUID(),
     collection,
@@ -291,8 +342,27 @@ export function enqueueOperation(workspace, collection, recordId, patch, options
   if (options.conflicts?.length) {
     operation.conflicts = normalizeConflicts(options.conflicts, { ...current?.data, ...patch });
   }
-  next.pending.push(operation);
-  return next;
+  return operation;
+}
+
+function workingRecords(workspace) {
+  const records = Object.fromEntries(COLLECTIONS.map(collection => [collection, safeRecordMap(workspace.remote[collection])]));
+  for (const operation of workspace.pending || []) {
+    if (!COLLECTIONS.includes(operation.collection)) continue;
+    const previous = records[operation.collection][operation.recordId] || newRecord({});
+    const applied = applyVisibleOperation(previous, operation);
+    if (applied !== previous) setOwn(records[operation.collection], operation.recordId, applied);
+  }
+  return records;
+}
+
+function appendOperation(workspace, records, collection, recordId, patch, options = {}) {
+  const previous = records[collection][recordId];
+  const operation = createOperation(previous, collection, recordId, patch, options);
+  workspace.pending.push(operation);
+  const applied = applyVisibleOperation(previous || newRecord({}), operation);
+  if (applied !== previous) setOwn(records[collection], recordId, applied);
+  return operation;
 }
 
 function conflictField(collection, field) {
@@ -343,7 +413,7 @@ export function acknowledge(workspace, operationId, record) {
   if (!operation) return next;
   const current = next.remote[operation.collection][operation.recordId];
   if (!current || (record.revision || 0) >= (current.revision || 0)) {
-    next.remote[operation.collection][operation.recordId] = clone(record);
+    setOwn(next.remote[operation.collection], operation.recordId, clone(record));
   }
   next.pending = next.pending.filter(item => item.id !== operationId);
   return next;
@@ -354,7 +424,9 @@ function activeEntries(records, collection) {
 }
 
 function categoryNamesById(records) {
-  return Object.fromEntries(activeEntries(records, 'categories').map(([id, value]) => [id, value.data.name]));
+  const names = Object.create(null);
+  for (const [id, value] of activeEntries(records, 'categories')) names[id] = value.data.name;
+  return names;
 }
 
 function hasMergeValue(value) {
@@ -423,25 +495,28 @@ export function migrationPreview(guest, account) {
 /** 把访客工作区转成账号待上传操作，不直接覆盖账号快照。 */
 export function mergeGuest(guest, account) {
   const local = visibleRecords(guest);
-  let result = clone(account);
-  let current = visibleRecords(result);
-  const mapping = { uncategorized: 'uncategorized' };
+  const result = clone(account);
+  const current = workingRecords(result);
+  const mapping = new Map([['uncategorized', 'uncategorized']]);
+  const categoriesByName = new Map(activeEntries(current, 'categories').map(entry => [entry[1].data.name, entry]));
 
   for (const [id, category] of activeEntries(local, 'categories')) {
     if (id === 'uncategorized') continue;
     const sameId = current.categories[id] && !current.categories[id].deleted ? [id, current.categories[id]] : null;
-    const existing = sameId || activeEntries(current, 'categories').find(([, value]) => value.data.name === category.data.name);
+    const existing = sameId || categoriesByName.get(category.data.name);
     const targetId = existing?.[0] || id;
-    mapping[id] = targetId;
-    if (!existing) result = enqueueOperation(result, 'categories', targetId, category.data, { restore: true });
+    mapping.set(id, targetId);
+    if (!existing) {
+      appendOperation(result, current, 'categories', targetId, category.data, { restore: true });
+      categoriesByName.set(category.data.name, [targetId, current.categories[targetId]]);
+    }
   }
 
-  current = visibleRecords(result);
   for (const [id, comment] of activeEntries(local, 'comments')) {
     const existing = current.comments[id];
-    const guestData = { ...comment.data, categoryId: mapping[comment.data.categoryId] || 'uncategorized' };
+    const guestData = { ...comment.data, categoryId: mapping.get(comment.data.categoryId) || 'uncategorized' };
     if (!existing || existing.deleted) {
-      result = enqueueOperation(result, 'comments', id, guestData, {
+      appendOperation(result, current, 'comments', id, guestData, {
         restore: existing?.deleted === true,
         conflicts: comment.conflicts
       });
@@ -454,7 +529,7 @@ export function mergeGuest(guest, account) {
       }
       if (Object.hasOwn(guestData, 'note') && guestData.note !== existing.data.note) patch.note = guestData.note;
       if (!Object.keys(patch).length && !comment.conflicts?.length) continue;
-      result = enqueueOperation(result, 'comments', id, patch, {
+      appendOperation(result, current, 'comments', id, patch, {
         // 访客数据没有云端共同祖先，使用早于当前快照的版本让事务保留双方笔记。
         baseRevision: (existing.revision || 0) - 1,
         baseData: {},
@@ -463,15 +538,13 @@ export function mergeGuest(guest, account) {
     }
   }
 
-  current = visibleRecords(result);
   const localCategoryNames = categoryNamesById(local);
   for (const [localCategoryId, summary] of activeEntries(local, 'summaries')) {
-    const targetId = mapping[localCategoryId]
-      || activeEntries(current, 'categories').find(([, value]) => value.data.name === localCategoryNames[localCategoryId])?.[0];
+    const targetId = mapping.get(localCategoryId) || categoriesByName.get(localCategoryNames[localCategoryId])?.[0];
     if (!targetId) continue;
     const existing = current.summaries[targetId];
     if (!existing || existing.deleted) {
-      result = enqueueOperation(result, 'summaries', targetId, summary.data, {
+      appendOperation(result, current, 'summaries', targetId, summary.data, {
         restore: existing?.deleted === true,
         conflicts: summary.conflicts
       });
@@ -486,7 +559,7 @@ export function mergeGuest(guest, account) {
         patch.content = summary.data.content;
       }
       if (!Object.keys(patch).length && !summary.conflicts?.length) continue;
-      result = enqueueOperation(result, 'summaries', targetId, patch, {
+      appendOperation(result, current, 'summaries', targetId, patch, {
         // 访客总结与账号总结来自独立空间，应明确进入冲突解决流程。
         baseRevision: (existing.revision || 0) - 1,
         baseData: {},
@@ -495,9 +568,9 @@ export function mergeGuest(guest, account) {
     }
   }
 
-  current = visibleRecords(result);
   const existingOrder = current.settings.main?.data.categoryOrder || ['uncategorized'];
-  const guestOrder = (local.settings.main?.data.categoryOrder || []).map(id => mapping[id]).filter(Boolean);
+  const guestOrder = (local.settings.main?.data.categoryOrder || []).map(id => mapping.get(id)).filter(Boolean);
   const categoryOrder = [...new Set([...existingOrder, ...guestOrder])];
-  return enqueueOperation(result, 'settings', 'main', { categoryOrder });
+  appendOperation(result, current, 'settings', 'main', { categoryOrder });
+  return result;
 }
