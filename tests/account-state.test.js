@@ -10,6 +10,73 @@ import {
   mutate
 } from '../storage/account-state.js';
 import { MAX_CONFLICT_TEXT_LENGTH, migrateLegacy, project, visibleRecords } from '../storage/model.js';
+import { createLocalDispatcher, respondToLocalMessage } from '../background/local-dispatch.js';
+
+function createMemoryStore(initialState) {
+  let state = structuredClone(initialState);
+  return {
+    async read() {
+      return structuredClone(state);
+    },
+    async update(callback) {
+      const draft = structuredClone(state);
+      const result = await callback(draft);
+      state = draft;
+      return result;
+    }
+  };
+}
+
+test('后台路由保持评论组和旧版消息返回结构', async () => {
+  const store = createMemoryStore(await createState([], ['未分类', '学习'], {}));
+  const dispatch = createLocalDispatcher(store);
+
+  const saved = await dispatch({ action: 'saveCommentGroup', data: { comments: [
+    { commentId: '1', text: '第一条', author: '甲', postUrl: 'https://www.xiaohongshu.com/explore/a', category: '学习' },
+    { commentId: '2', text: '第二条', author: '乙', postUrl: 'https://www.xiaohongshu.com/explore/a', category: '学习' }
+  ] } });
+  assert.equal(saved.length, 2);
+  assert.equal(saved[0].groupId, saved[1].groupId);
+
+  const moved = await dispatch({ action: 'updateCategory', id: saved[0].id, category: '未分类' });
+  assert.equal(moved.length, 2);
+  assert.equal(moved.every(comment => comment.category === '未分类'), true);
+
+  const comments = await dispatch({ action: 'getComments' });
+  const first = comments.find(comment => comment.commentId === '1');
+  assert.equal(typeof first.id, 'string');
+  assert.equal(first.text, '第一条');
+  assert.equal(first.category, '未分类');
+  assert.equal(first.note, '');
+  assert.equal(comments.some(comment => Object.hasOwn(comment, 'data')), false);
+  assert.equal(comments.some(comment => Object.hasOwn(comment, 'revision')), false);
+  assert.equal(comments.some(comment => Object.hasOwn(comment, 'deleted')), false);
+});
+
+test('后台删除分类后评论回到未分类并返回最新投影', async () => {
+  const state = await createState([
+    { commentId: '1', text: '待归类', category: '学习' }
+  ], ['未分类', '学习'], { 学习: { content: '分类总结' } });
+  const dispatch = createLocalDispatcher(createMemoryStore(state));
+
+  const categories = await dispatch({ action: 'deleteCategory', name: '学习' });
+  assert.deepEqual(categories, ['未分类']);
+  assert.equal((await dispatch({ action: 'getComments' }))[0].category, '未分类');
+  assert.deepEqual(Object.keys(await dispatch({ action: 'getSummaries' })), []);
+});
+
+test('后台写入成功响应不等待页面数据变更通知', async () => {
+  let response;
+  const neverSettles = new Promise(() => {});
+  await respondToLocalMessage(
+    async () => ({ id: 'saved' }),
+    () => neverSettles,
+    { action: 'saveComment' },
+    value => { response = value; }
+  );
+
+  assert.deepEqual(response, { success: true, data: { id: 'saved' } });
+});
 
 test('切换账号只切命名空间且不会搬运待上传修改', async () => {
   const state = await createState([], ['未分类'], {});

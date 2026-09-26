@@ -609,6 +609,29 @@ function refreshButtons() {
   });
 }
 
+/** 从后台刷新分类列表。 */
+async function refreshCategories() {
+  const response = await chrome.runtime.sendMessage({ action: 'getCategories' });
+  if (!response.success) throw new Error(response.error || '读取分类失败');
+  categories = response.data;
+}
+
+/** 只提取页面标记需要的评论 ID 和组合键，不把笔记或总结写入页面。 */
+async function refreshSavedCommentState() {
+  const response = await chrome.runtime.sendMessage({ action: 'getComments' });
+  if (!response.success) throw new Error(response.error || '读取收藏状态失败');
+  savedCommentIds.clear();
+  savedCommentKeys.clear();
+  response.data.forEach(comment => {
+    if (comment.commentId) savedCommentIds.add(comment.commentId);
+    if (comment.key) {
+      savedCommentKeys.add(comment.key);
+    } else {
+      savedCommentKeys.add(makeCommentKey(comment.postUrl, comment.author, comment.text));
+    }
+  });
+}
+
 /**
  * 切换某条评论的选中状态
  * @param {Element} commentEl
@@ -773,21 +796,7 @@ function isDetailPage() {
 async function init() {
   // 加载数据（始终加载，SPA 导航随时可能进入详情页）
   try {
-    const catResp = await chrome.runtime.sendMessage({ action: 'getCategories' });
-    if (catResp.success) categories = catResp.data;
-    const commentResp = await chrome.runtime.sendMessage({ action: 'getComments' });
-    if (commentResp.success) {
-      savedCommentIds.clear();
-      savedCommentKeys.clear();
-      commentResp.data.forEach(c => {
-        if (c.commentId) savedCommentIds.add(c.commentId);
-        if (c.key) {
-          savedCommentKeys.add(c.key);
-        } else {
-          savedCommentKeys.add(makeCommentKey(c.postUrl, c.author, c.text));
-        }
-      });
-    }
+    await Promise.all([refreshCategories(), refreshSavedCommentState()]);
   } catch (err) {
     console.warn('[评论收藏] 加载数据失败:', err.message);
     categories = ['未分类', '好物', '避雷', '搞笑'];
@@ -806,6 +815,21 @@ async function init() {
   window.addEventListener('hashchange', () => setTimeout(checkUrlChange, 300));
   setInterval(checkUrlChange, 1000);
 }
+
+/* 后台数据变化时无需刷新页面即可更新分类和收藏标记。 */
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.action !== 'dataChanged') return false;
+  Promise.all([refreshCategories(), refreshSavedCommentState()])
+    .then(() => {
+      refreshButtons();
+      sendResponse({ success: true });
+    })
+    .catch(error => {
+      console.warn('[评论收藏] 刷新收藏状态失败:', error.message);
+      sendResponse({ success: false, error: error.message });
+    });
+  return true;
+});
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
