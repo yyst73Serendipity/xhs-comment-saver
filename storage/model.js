@@ -106,10 +106,17 @@ export function emptyWorkspace() {
   };
 }
 
-function quarantineMigration(workspace, type, index, raw, reason, details = {}) {
+async function migrationReference(raw) {
+  const serialized = JSON.stringify(raw) ?? String(raw);
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(serialized));
+  const hash = Array.from(new Uint8Array(digest).slice(0, 8), byte => byte.toString(16).padStart(2, '0')).join('');
+  return { preview: serialized.slice(0, 80), hash };
+}
+
+async function quarantineMigration(workspace, type, index, raw, reason) {
   const issueType = { comments: 'comment', categories: 'category', summaries: 'summary' }[type];
-  workspace.migrationIssues.push({ type: issueType, ...details, reason });
-  workspace.migrationQuarantine[type].push({ index, ...details, reason, raw: clone(raw) });
+  workspace.migrationIssues.push({ type: issueType, index, reason, reference: await migrationReference(raw) });
+  workspace.migrationQuarantine[type].push({ type: issueType, index, reason, raw: clone(raw) });
 }
 
 function normalizeText(value) {
@@ -260,7 +267,7 @@ export async function migrateLegacy(comments = [], categories = DEFAULT_CATEGORI
   for (const [index, source] of (Array.isArray(categories) ? categories : []).entries()) {
     const name = categoryName(source);
     if (name) suppliedNames.push(name);
-    else quarantineMigration(workspace, 'categories', index, source, '分类名称格式无效');
+    else await quarantineMigration(workspace, 'categories', index, source, '分类名称格式无效');
   }
   const names = [...new Set(['未分类', ...suppliedNames])];
   const idsByName = new Map();
@@ -274,9 +281,7 @@ export async function migrateLegacy(comments = [], categories = DEFAULT_CATEGORI
 
   for (const [index, source] of (Array.isArray(comments) ? comments : []).entries()) {
     if (!validLegacyComment(source)) {
-      quarantineMigration(workspace, 'comments', index, source, '评论缺少可用于去重的稳定标识', {
-        legacyId: source?.id ?? source?.commentId ?? null
-      });
+      await quarantineMigration(workspace, 'comments', index, source, '评论缺少可用于去重的稳定标识');
       continue;
     }
     try {
@@ -291,9 +296,7 @@ export async function migrateLegacy(comments = [], categories = DEFAULT_CATEGORI
         ? mergeDuplicateComment(existing, incoming, id)
         : newRecord({ ...data, categoryId: data.categoryId || 'uncategorized' });
     } catch (error) {
-      quarantineMigration(workspace, 'comments', index, source, error?.message || '评论无法迁移', {
-        legacyId: source.id ?? source.commentId ?? null,
-      });
+      await quarantineMigration(workspace, 'comments', index, source, error?.message || '评论无法迁移');
     }
   }
 
@@ -301,13 +304,12 @@ export async function migrateLegacy(comments = [], categories = DEFAULT_CATEGORI
     for (const [index, [name, legacySummary]] of Object.entries(summaries).entries()) {
       const id = idsByName.get(categoryName(name));
       if (!id || legacySummary == null) {
-        quarantineMigration(
+        await quarantineMigration(
           workspace,
           'summaries',
           index,
-          legacySummary,
-          !id ? '总结分类不存在' : '总结内容格式无效',
-          { category: name }
+          { category: name, value: legacySummary },
+          !id ? '总结分类不存在' : '总结内容格式无效'
         );
         continue;
       }
@@ -318,9 +320,13 @@ export async function migrateLegacy(comments = [], categories = DEFAULT_CATEGORI
         validateTextBoundary('summaries', data);
         workspace.remote.summaries[id] = newRecord(data);
       } catch (error) {
-        quarantineMigration(workspace, 'summaries', index, legacySummary, error?.message || '分类总结无法迁移', {
-          category: name,
-        });
+        await quarantineMigration(
+          workspace,
+          'summaries',
+          index,
+          { category: name, value: legacySummary },
+          error?.message || '分类总结无法迁移'
+        );
       }
     }
   }

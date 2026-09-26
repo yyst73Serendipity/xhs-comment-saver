@@ -99,8 +99,7 @@ test('首次迁移失败项保留完整原文且成功数据不会重复备份',
   assert.match(guest.migrationQuarantine.comments[0].reason, /稳定标识/);
   assert.equal(guest.migrationQuarantine.comments[0].index, 0);
   assert.equal(guest.migrationQuarantine.summaries.length, 1);
-  assert.deepEqual(guest.migrationQuarantine.summaries[0].raw, invalidSummary);
-  assert.equal(guest.migrationQuarantine.summaries[0].category, '学习');
+  assert.deepEqual(guest.migrationQuarantine.summaries[0].raw, { category: '学习', value: invalidSummary });
   assert.equal(guest.migrationQuarantine.summaries[0].index, 0);
   assert.equal(guest.migrationQuarantine.categories.length, 0);
   assert.equal(JSON.stringify(guest.migrationQuarantine).includes('成功评论'), false);
@@ -123,4 +122,36 @@ test('不同 LocalStore 实例共享写锁且失败不会阻塞后续实例', as
   await assert.rejects(() => firstStore.update(() => { throw new Error('跨实例失败'); }), /跨实例失败/);
   await secondStore.update(state => { state.recoveredAcrossInstances = true; });
   assert.equal(storage.saved[STATE_KEY].recoveredAcrossInstances, true);
+});
+
+test('超大迁移标识只在隔离原文保存一次且展示引用保持有界', async () => {
+  const hugeCommentId = `comment-${'i'.repeat(1_000_000)}`;
+  const hugeSummaryCategory = `category-${'c'.repeat(1_000_000)}`;
+  const legacyComments = [{ commentId: hugeCommentId, text: '原始评论' }];
+  const legacyCategories = ['未分类'];
+  const legacySummaries = { [hugeSummaryCategory]: { content: '原始总结' } };
+  const inputBytes = new TextEncoder().encode(JSON.stringify({
+    comments: legacyComments,
+    categories: legacyCategories,
+    summaries: legacySummaries
+  })).byteLength;
+  const storage = installStorage({
+    xhs_comments: legacyComments,
+    xhs_categories: legacyCategories,
+    xhs_summaries: legacySummaries
+  });
+
+  await new LocalStore().update(() => {});
+
+  const state = storage.saved[STATE_KEY];
+  const serialized = JSON.stringify(state);
+  const stateBytes = new TextEncoder().encode(serialized).byteLength;
+  assert.equal(state.guest.migrationQuarantine.comments[0].raw.commentId, hugeCommentId);
+  assert.equal(state.guest.migrationQuarantine.summaries[0].raw.category, hugeSummaryCategory);
+  assert.deepEqual(state.guest.migrationQuarantine.summaries[0].raw.value, { content: '原始总结' });
+  assert.equal(serialized.indexOf(hugeCommentId), serialized.lastIndexOf(hugeCommentId));
+  assert.equal(serialized.indexOf(hugeSummaryCategory), serialized.lastIndexOf(hugeSummaryCategory));
+  assert.equal(state.guest.migrationIssues.every(issue => JSON.stringify(issue).length < 500), true);
+  assert.equal(state.guest.migrationIssues.every(issue => issue.reference.preview.length <= 80), true);
+  assert.equal(stateBytes <= inputBytes + 50_000, true);
 });
