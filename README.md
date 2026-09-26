@@ -34,6 +34,12 @@
 - 导出包含评论、分类、AI 总结数据
 - 数据存储在 chrome.storage.local，离线可用
 
+**云同步数据模型（接入中）**
+- 评论优先使用小红书 `commentId` 作为稳定标识；缺失时根据帖子地址、作者和正文生成 SHA-256 标识
+- 分类使用稳定 ID，重命名分类不会改写评论关系，AI 总结按分类 ID 继续关联
+- 已建立旧数据迁移预览、访客数据合并、字段级合并、笔记与总结冲突保留以及删除墓碑模型
+- `chrome.storage.local` 仍将作为本地工作副本；Google 登录和 Firestore 传输将在后续任务接入
+
 **AI 总结**
 - 右侧面板上半部分，按分类存储 Markdown 总结笔记
 - 支持手动编写（实时自动保存）和 AI 自动生成（调用大模型 API）
@@ -66,6 +72,8 @@ xhs-comment-saver/
 │   └── firebase.example.json     # Firebase 本机配置示例
 ├── scripts/
 │   └── build.js                  # 生成可加载扩展并保留固定扩展 ID
+├── storage/
+│   └── model.js                  # 评论、分类、总结的版本化模型与旧数据迁移
 ├── assets/                       # 静态资源
 │   ├── icon-16.png               # 扩展图标 16x16
 │   ├── icon-48.png               # 扩展图标 48x48
@@ -88,6 +96,7 @@ xhs-comment-saver/
 │   ├── api-config.test.js        # AI 配置迁移和 API 来源边界测试
 │   ├── build-output.test.js      # 构建产物、固定 ID 与敏感文件边界测试
 │   ├── readme-upgrade.test.js     # 升级前导出与恢复顺序契约测试
+│   ├── sync-model.test.js         # 稳定标识、迁移、合并、冲突与墓碑测试
 │   └── storage.test.html         # 存储操作单元测试
 
 ```
