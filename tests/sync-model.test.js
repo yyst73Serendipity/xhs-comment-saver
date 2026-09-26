@@ -52,6 +52,32 @@ test('平台 commentId 会转义路径分隔符', async () => {
   assert.equal(identity.includes('/'), false);
 });
 
+test('过长 commentId 在身份阶段按 UTF-8 边界拒绝', async () => {
+  await assert.rejects(
+    () => model.commentIdentity({ commentId: 'a'.repeat(600) }),
+    /评论标识过长/
+  );
+  await assert.rejects(
+    () => model.commentIdentity({ commentId: '汉'.repeat(200) }),
+    /评论标识过长/
+  );
+});
+
+test('迁移逐条隔离过长 commentId 且有效评论仍可合并到账号', async () => {
+  const guest = await model.migrateLegacy([
+    { commentId: 'valid', text: '有效评论' },
+    { commentId: 'a'.repeat(600), text: '过长 ASCII 标识' },
+    { commentId: '汉'.repeat(200), text: '过长中文标识' }
+  ], ['未分类'], {});
+
+  assert.deepEqual(Object.keys(guest.remote.comments), ['comment-valid']);
+  assert.equal(guest.migrationIssues.length, 2);
+  assert.equal(guest.migrationIssues.every(issue => /评论标识过长/.test(issue.reason)), true);
+  const merged = model.mergeGuest(guest, model.emptyWorkspace());
+  assert.equal(merged.pending.filter(item => item.collection === 'comments').length, 1);
+  assert.equal(model.visibleRecords(merged).comments['comment-valid'].data.text, '有效评论');
+});
+
 test('评论身份依次使用 commentId、旧 key、内容组合与旧 id 兜底', async () => {
   const withCommentId = await model.commentIdentity({ commentId: '123', key: 'legacy-key', text: '正文', author: '甲' });
   const withKey = await model.commentIdentity({ key: 'legacy-key', text: '正文', author: '甲' });
@@ -432,6 +458,10 @@ test('操作入口拒绝可能越过 Firestore 文档路径的记录 ID', () => 
   assert.throws(
     () => model.enqueueOperation(model.emptyWorkspace(), 'comments', '../other', { note: '内容' }),
     /记录 ID 无效/
+  );
+  assert.throws(
+    () => model.enqueueOperation(model.emptyWorkspace(), 'comments', '汉'.repeat(200), { note: '内容' }),
+    /记录 ID 过长/
   );
 });
 

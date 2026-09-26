@@ -4,6 +4,7 @@
 export const COLLECTIONS = ['comments', 'categories', 'summaries', 'settings'];
 export const MAX_CONFLICT_TEXT_LENGTH = 100_000;
 export const MAX_CONFLICTS = 5;
+const MAX_RECORD_ID_BYTES = 512;
 
 const DEFAULT_CATEGORY_IDS = new Map([
   ['未分类', 'uncategorized'],
@@ -56,6 +57,15 @@ function validatePatchFields(collection, patch) {
   for (const field of Object.keys(patch || {})) {
     if (!allowed.has(field)) throw new Error(`${COLLECTION_LABELS.get(collection)}字段 ${field} 不允许同步`);
   }
+}
+
+function validateRecordId(recordId, label = '记录 ID') {
+  if (typeof recordId !== 'string' || !/^(?!\.{1,2}$)[^/]+$/.test(recordId)) throw new Error('记录 ID 无效');
+  if (new TextEncoder().encode(recordId).byteLength > MAX_RECORD_ID_BYTES) {
+    const subject = label === '记录 ID' ? '记录 ID 过长' : `${label}过长`;
+    throw new Error(`${subject}，UTF-8 编码后不能超过 ${MAX_RECORD_ID_BYTES} 字节`);
+  }
+  return recordId;
 }
 
 function normalizeConflicts(conflicts, data = {}) {
@@ -111,11 +121,14 @@ export async function commentIdentity(comment) {
   const platformId = String(comment?.commentId ?? '').trim().toLowerCase();
   if (platformId) {
     const safeId = encodeURIComponent(platformId).replace(/%[0-9A-F]{2}/g, value => value.toLowerCase());
-    return `comment-${safeId}`;
+    return validateRecordId(`comment-${safeId}`, '评论标识');
   }
   const hash = async (prefix, input) => {
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
-    return `${prefix}-${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')}`;
+    return validateRecordId(
+      `${prefix}-${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')}`,
+      '评论标识'
+    );
   };
   const legacyKey = typeof comment?.key === 'string' ? comment.key.trim() : '';
   if (legacyKey) return hash('key', legacyKey);
@@ -365,7 +378,7 @@ export function enqueueOperation(workspace, collection, recordId, patch, options
 
 function createOperation(current, collection, recordId, patch, options = {}) {
   if (!COLLECTIONS.includes(collection)) throw new Error('同步集合无效');
-  if (typeof recordId !== 'string' || !/^(?!\.{1,2}$)[^/]{1,512}$/.test(recordId)) throw new Error('记录 ID 无效');
+  validateRecordId(recordId);
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('修改内容无效');
   validatePatchFields(collection, patch);
   validateTextBoundary(collection, patch);
