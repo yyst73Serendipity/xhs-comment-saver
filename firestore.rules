@@ -1,0 +1,184 @@
+/**
+ * 只允许配置中的唯一所有者访问个人同步数据，并限制文档结构。
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owner(uid) {
+      return request.auth != null
+        && request.auth.uid == uid
+        && uid == '__OWNER_UID__';
+    }
+
+    function validConflict(value, kind) {
+      return value is map
+        && value.keys().hasOnly(['id', 'field', 'local'])
+        && value.id is string
+        && value.id.size() > 0
+        && value.id.size() <= 512
+        && value.field is string
+        && ((kind == 'comments' && value.field == 'note')
+          || (kind == 'summaries' && value.field == 'content'))
+        && value.local is string
+        && value.local.size() <= 100000;
+    }
+
+    function validConflictAt(values, index, kind) {
+      return values.size() <= index || validConflict(values[index], kind);
+    }
+
+    function validConflicts(values, kind) {
+      return values is list
+        && values.size() <= 5
+        && ((kind in ['categories', 'settings'] && values.size() == 0)
+          || (kind in ['comments', 'summaries']
+            && validConflictAt(values, 0, kind)
+            && validConflictAt(values, 1, kind)
+            && validConflictAt(values, 2, kind)
+            && validConflictAt(values, 3, kind)
+            && validConflictAt(values, 4, kind)));
+    }
+
+    function validRecordEnvelope(kind) {
+      return request.resource.data.keys().hasOnly(['data', 'revision', 'deleted', 'conflicts', 'updatedAt'])
+        && request.resource.data.data is map
+        && request.resource.data.revision is int
+        && request.resource.data.deleted is bool
+        && validConflicts(request.resource.data.conflicts, kind)
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function optionalString(data, key, maximum) {
+      return !(key in data) || (data[key] is string && data[key].size() <= maximum);
+    }
+
+    function validUrl(value) {
+      return value.size() > 0
+        && value.size() <= 16384
+        && value.matches('https?://[^\\n]+');
+    }
+
+    function validUrlList(values) {
+      return values is list
+        && values.size() <= 100
+        && (values.size() == 0
+          || values.join('\n').matches(
+            '^(https?://(?:(?:[^\\n]{1000}){0,15}[^\\n]{1,1000}|(?:[^\\n]{1000}){16}[^\\n]{1,376})(\\n|$))*$'
+          ));
+    }
+
+    function validAudioMap(value) {
+      return value.keys().hasOnly(['url'])
+        && value.url is string
+        && validUrl(value.url);
+    }
+
+    function validIdList(values) {
+      return values is list
+        && (values.size() == 0
+          || values.join('\n').matches(
+            '^((uncategorized|good-things|warnings|funny|[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(\\n|$))*$'
+          ));
+    }
+
+    function validComment(data) {
+      return data.keys().hasOnly([
+          'commentId', 'text', 'author', 'postUrl', 'postTitle', 'images', 'audio', 'groupId',
+          'groupIndex', 'categoryId', 'note', 'savedAt', 'key', 'legacyId', 'legacyKey'
+        ])
+        && optionalString(data, 'commentId', 512)
+        && optionalString(data, 'text', 307200)
+        && optionalString(data, 'author', 8192)
+        && optionalString(data, 'postUrl', 16384)
+        && optionalString(data, 'postTitle', 32768)
+        && optionalString(data, 'categoryId', 512)
+        && optionalString(data, 'note', 307200)
+        && optionalString(data, 'key', 16384)
+        && optionalString(data, 'legacyId', 16384)
+        && optionalString(data, 'legacyKey', 16384)
+        && (!('images' in data) || validUrlList(data.images))
+        && (!('audio' in data)
+          || data.audio == null
+          || (data.audio is string && validUrl(data.audio))
+          || (data.audio is map && validAudioMap(data.audio)))
+        && (!('groupId' in data) || data.groupId == null
+          || (data.groupId is string && data.groupId.size() <= 512))
+        && (!('groupIndex' in data) || data.groupIndex == null
+          || (data.groupIndex is int && data.groupIndex >= 0))
+        && (!('savedAt' in data) || (data.savedAt is int && data.savedAt >= 0));
+    }
+
+    function validCategory(data) {
+      return data.keys().hasOnly(['name', 'createdAt', 'updatedAt'])
+        && optionalString(data, 'name', 40)
+        && (!('name' in data) || data.name.size() > 0)
+        && (!('createdAt' in data) || data.createdAt is int)
+        && (!('updatedAt' in data) || data.updatedAt is int);
+    }
+
+    function validSummary(data) {
+      return data.keys().hasOnly(['content', 'updatedAt', 'generatedBy', 'model', 'provider'])
+        && optionalString(data, 'content', 307200)
+        && optionalString(data, 'generatedBy', 256)
+        && optionalString(data, 'model', 2048)
+        && optionalString(data, 'provider', 256)
+        && (!('updatedAt' in data) || data.updatedAt is int);
+    }
+
+    function validSettings(data) {
+      return data.keys().hasOnly(['categoryOrder', 'order'])
+        && (!('categoryOrder' in data) || validIdList(data.categoryOrder))
+        && (!('order' in data) || validIdList(data.order));
+    }
+
+    function validBusiness(kind) {
+      return (kind == 'comments' && validComment(request.resource.data.data))
+        || (kind == 'categories' && validCategory(request.resource.data.data))
+        || (kind == 'summaries' && validSummary(request.resource.data.data))
+        || (kind == 'settings' && validSettings(request.resource.data.data));
+    }
+
+    match /users/{uid}/{kind}/{id} {
+      allow read: if owner(uid) && kind in ['comments', 'categories', 'summaries', 'settings'];
+      allow create: if owner(uid)
+        && validRecordEnvelope(kind)
+        && request.resource.data.revision == 1
+        && validBusiness(kind);
+      allow update: if owner(uid)
+        && validRecordEnvelope(kind)
+        && request.resource.data.revision == resource.data.revision + 1
+        && validBusiness(kind);
+      allow delete: if false;
+    }
+
+    function validReceiptRecordId(value) {
+      return value is string
+        && value.size() > 0
+        && value.size() <= 512
+        && value != '.'
+        && value != '..'
+        && value.matches('[A-Za-z0-9_%~+,.=@()\\-]+');
+    }
+
+    function receiptTargetWritten(uid) {
+      let target = /databases/$(database)/documents/users/$(uid)/$(request.resource.data.collection)/$(request.resource.data.recordId);
+      return existsAfter(target)
+        && getAfter(target).data.updatedAt == request.time;
+    }
+
+    match /users/{uid}/operations/{id} {
+      allow read: if owner(uid);
+      allow create: if owner(uid)
+        && request.resource.data.keys().hasOnly(['collection', 'recordId', 'createdAt'])
+        && request.resource.data.collection in ['comments', 'categories', 'summaries', 'settings']
+        && validReceiptRecordId(request.resource.data.recordId)
+        && request.resource.data.createdAt == request.time
+        && receiptTargetWritten(uid);
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

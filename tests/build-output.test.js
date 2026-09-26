@@ -81,9 +81,34 @@ test('已配置 Firebase 时只加入登录页的精确来源', async () => {
       }
     });
     const manifest = JSON.parse(await readFile(`${outputDirectory}/extension/manifest.json`, 'utf8'));
+    const expectedId = createHash('sha256')
+      .update(Buffer.from(manifest.key, 'base64'))
+      .digest('hex')
+      .slice(0, 32)
+      .replace(/[0-9a-f]/g, value => String.fromCharCode(97 + Number.parseInt(value, 16)));
     assert.equal(manifest.host_permissions.includes('https://login.example.com/*'), true);
     assert.equal(manifest.host_permissions.some(value => value.includes('*.firebaseapp.com')), false);
     assert.equal(manifest.host_permissions.some(value => value.includes('*.web.app')), false);
+    const rules = await readFile(`${outputDirectory}/firestore.rules`, 'utf8');
+    const deployConfig = JSON.parse(await readFile(`${outputDirectory}/firebase.json`, 'utf8'));
+    assert.match(rules, /uid == 'owner_uid'/);
+    assert.doesNotMatch(rules, /__OWNER_UID__/);
+    assert.deepEqual(deployConfig.firestore, { rules: 'firestore.rules' });
+    assert.equal(deployConfig.hosting.public, 'hosting');
+    const headers = deployConfig.hosting.headers[0].headers;
+    assert.deepEqual(headers.find(item => item.key === 'Referrer-Policy'), {
+      key: 'Referrer-Policy', value: 'no-referrer'
+    });
+    assert.deepEqual(headers.find(item => item.key === 'X-Content-Type-Options'), {
+      key: 'X-Content-Type-Options', value: 'nosniff'
+    });
+    assert.deepEqual(headers.find(item => item.key === 'Cache-Control'), {
+      key: 'Cache-Control', value: 'no-store'
+    });
+    assert.match(
+      headers.find(item => item.key === 'Content-Security-Policy').value,
+      new RegExp(`frame-ancestors chrome-extension://${expectedId}`)
+    );
   } finally {
     await rm(outputDirectory, { recursive: true, force: true });
   }

@@ -170,7 +170,26 @@ const rules = await readFile('firestore.rules', 'utf8').catch(error => {
   if (error.code !== 'ENOENT') throw error;
   return denyAllRules;
 });
-await writeFile(`${outputRoot}/firestore.rules`, rules.replaceAll('__OWNER_UID__', firebaseConfig.ownerUid || '__OWNER_UID__'));
+const builtRules = isOwnerConfigured(firebaseConfig)
+  ? rules.replaceAll('__OWNER_UID__', firebaseConfig.ownerUid)
+  : denyAllRules;
+await writeFile(`${outputRoot}/firestore.rules`, builtRules);
+await writeFile(`${outputRoot}/firebase.json`, `${JSON.stringify({
+  firestore: { rules: 'firestore.rules' },
+  hosting: {
+    public: 'hosting',
+    ignore: ['firebase.json', '**/.*', '**/node_modules/**'],
+    headers: [{
+      source: '**',
+      headers: [
+        { key: 'Referrer-Policy', value: 'no-referrer' },
+        { key: 'X-Content-Type-Options', value: 'nosniff' },
+        { key: 'Cache-Control', value: 'no-store' },
+        { key: 'Content-Security-Policy', value: `frame-ancestors chrome-extension://${extensionId}; base-uri 'none'; object-src 'none'` }
+      ]
+    }]
+  }
+}, null, 2)}\n`);
 await writeFile(`${outputRoot}/extension-id.txt`, `${extensionId}\n`);
 
 console.log([

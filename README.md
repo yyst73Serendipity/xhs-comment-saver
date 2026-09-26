@@ -49,6 +49,8 @@
 - `cloudLogin`、`cloudLogout`、`cloudStatus` 已统一进入后台认证入口；Firebase 首次会话状态落盘前，账号范围消息会等待，避免 Service Worker 重启时误写上次账号空间；退出登录只回到访客空间并保留账号本地数据
 - 隐藏认证文档使用 Chrome 116 已支持的 `runtime.getContexts` 检查，不依赖仅在 Chrome 150 起提供的 `offscreen.hasDocument`
 - 配置 `ownerUid` 后会拒绝其他 Google 账号；没有 Firebase 本机配置时不会初始化 SDK 或创建登录文档，扩展继续以纯本地模式工作
+- Firestore 只开放所有者路径下的评论、分类、总结、设置和幂等操作回执；业务文档由服务端时间排序，未知集合、额外顶层字段、客户端伪造时间和越界字段会被规则拒绝
+- 云端提交在单个事务中先读取操作回执和目标记录，再一次性写入合并记录与回执；重复操作不会二次修改数据，增量读取按服务器时间与文档 ID 稳定分页，每页最多 200 条
 
 **AI 总结**
 - 右侧面板上半部分，按分类存储 Markdown 总结笔记
@@ -73,6 +75,8 @@
 ```
 xhs-comment-saver/
 ├── package.json                  # 测试、构建、模拟器与部署命令
+├── firebase.json                 # Firestore Emulator 与 Hosting 配置
+├── firestore.rules               # 个人所有者访问和字段边界规则
 ├── manifest.json                 # Chrome 扩展配置（Manifest V3）
 ├── .env.example                  # 旧版 API 配置迁移模板（不进入构建产物）
 ├── auth/
@@ -86,7 +90,10 @@ xhs-comment-saver/
 │   ├── firebase-config.js        # 构建期 Firebase 公共配置入口
 │   └── firebase.example.json     # Firebase 本机配置示例
 ├── scripts/
-│   └── build.js                  # 生成可加载扩展并保留固定扩展 ID
+│   ├── build.js                  # 生成可加载扩展并保留固定扩展 ID
+│   └── deploy.js                 # 校验项目与所有者后确定性部署
+├── sync/
+│   └── cloud-store.js            # Firestore 幂等事务与增量分页读取
 ├── storage/
 │   ├── model.js                  # 评论、分类、总结的版本化模型与旧数据迁移
 │   ├── sync-limits.js            # 本地同步与 Firestore Rules 共用的数据边界
@@ -121,6 +128,9 @@ xhs-comment-saver/
 │   ├── sync-model.test.js        # 稳定标识、迁移、合并、冲突与墓碑测试
 │   ├── account-state.test.js     # 账号隔离、导入排队和业务动作测试
 │   ├── storage-layout.test.js    # 串行原子写入与单副本边界测试
+│   ├── cloud-store.test.js       # 云端事务、路径和分页单元测试
+│   ├── integration/
+│   │   └── firestore-rules.test.js # Firestore Emulator 安全规则测试
 │   └── storage.test.html         # 存储操作单元测试
 
 ```
@@ -173,13 +183,15 @@ xhs-comment-saver/
 
 ### 运行测试
 
-运行 `npm test` 执行 Node.js 自动测试。构建产物测试只允许使用系统临时目录下带专用前缀的独立目录并自动清理，不会覆盖可交付的 `dist`；正式构建只能输出到项目内固定的 `dist`。原有浏览器存储测试仍可在源码模式下打开 `chrome-extension://<扩展ID>/tests/storage.test.html` 执行。
+运行 `npm test` 执行 Node.js 自动测试。安装 Java 后可运行 `npm run test:integration`，由 Firebase Emulator 验证所有者访问、字段类型、集合白名单和服务器时间规则。构建产物测试只允许使用系统临时目录下带专用前缀的独立目录并自动清理，不会覆盖可交付的 `dist`；正式构建只能输出到项目内固定的 `dist`。原有浏览器存储测试仍可在源码模式下打开 `chrome-extension://<扩展ID>/tests/storage.test.html` 执行。
 
 ### Firebase 构建配置
 
 复制 `config/firebase.example.json` 为 `config/firebase.local.json` 并填写独立 Firebase 项目的公开客户端配置、HTTPS `authPageUrl` 和可选 `ownerUid`。此本机文件已被 Git 忽略；未创建时仍可运行 `npm run build`，扩展会以本地模式构建，并且不会初始化 Firebase 或创建登录文档。
 
 构建会同时生成 `dist/extension` 和 `dist/hosting`。认证桥已提供后台 `cloudLogin`、`cloudLogout`、`cloudStatus` 动作，但管理页的登录控件与真实 Firebase 部署仍在后续接入；在部署 Hosting 并启用 Google 登录前，继续使用本地收藏即可。首次取得真实 UID 后，应把它填入 `ownerUid` 并重新构建，其他 Google 账号随后会被扩展拒绝。
+
+配置完整的 `projectId` 与 `ownerUid` 后，可运行 `npm run deploy`。部署脚本会先重新构建并确认 `dist/firestore.rules` 不含所有者占位符，再通过项目内 Firebase CLI 参数数组部署 Firestore Rules 与 Hosting；不要把本机配置加入 Git。
 
 ## 技术栈
 
