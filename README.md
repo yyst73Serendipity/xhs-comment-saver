@@ -34,7 +34,7 @@
 - 导出包含评论、分类、AI 总结数据
 - 数据存储在 chrome.storage.local，离线可用
 
-**云同步数据模型（接入中）**
+**云同步数据模型与账号认证（接入中）**
 - 评论依次使用小红书 `commentId`、可靠旧 `key`、帖子 URL 与正文或媒体组合生成稳定标识，旧本地 `id` 仅作为迁移兜底；标识统一检查 UTF-8 长度，过长或缺少帖子 URL 且无法兜底的记录会进入迁移问题清单
 - 分类使用稳定 ID，重命名分类不会改写评论关系，AI 总结按分类 ID 继续关联
 - 已建立旧数据迁移预览、访客数据按稳定分类 ID 和评论字段线性批量合并、笔记与总结冲突保留以及删除墓碑模型；操作字段经过集合白名单检查，动态数据使用无原型映射，过长或无法识别的旧记录会逐条隔离并显示中文原因
@@ -42,9 +42,12 @@
 - `chrome.storage.local` 作为本地工作副本，访客与每个 Google UID 使用独立命名空间；切换账号只切换当前空间，不会把访客数据或其他账号的待上传修改自动搬入
 - 访客修改只在本机落盘，不产生云端队列；登录账号的评论、分类、总结与顺序修改会进入独立待上传队列，导入数据也遵循同一规则
 - 评论与总结在入队前按 UTF-8 字节校验：包含冲突与版本包装的完整记录最多 700 KiB、单条评论最多 100 张图片、媒体 URL 最多 16 KiB，正文、笔记及总结元数据另有逐字段上限；这些常量将由 Firestore Rules 使用相同或更严格的边界
-- 本地写入通过串行存储层提交，版本化状态和旧界面兼容投影在同一次 `chrome.storage.local.set` 中更新；Google 登录和 Firestore 传输将在后续任务接入
+- 本地写入通过串行存储层提交，版本化状态和旧界面兼容投影在同一次 `chrome.storage.local.set` 中更新；Firestore 数据传输将在后续任务接入
 - Service Worker 已统一通过账号存储层处理评论、分类和总结的读取与修改，并继续返回现有内容脚本和管理页可直接使用的卡片、分类及总结结构
 - 数据修改后会通知已打开的小红书页面重新读取收藏 ID 和组合键，无需刷新页面即可更新收藏标记；私人笔记和总结不会写入小红书页面 DOM
+- 已接入 Firebase Google 登录桥：Service Worker 通过唯一 offscreen 文档加载独立 Hosting 页面，托管页只向固定扩展来源返回短期 ID token，请求号、来源和 0～120 秒签发时间会被严格校验
+- `cloudLogin`、`cloudLogout`、`cloudStatus` 已统一进入后台认证入口；Firebase 会话变化通过串行 `LocalStore.update` 切换账号命名空间，退出登录只回到访客空间并保留账号本地数据
+- 配置 `ownerUid` 后会拒绝其他 Google 账号；没有 Firebase 本机配置时不会初始化 SDK 或创建登录文档，扩展继续以纯本地模式工作
 
 **AI 总结**
 - 右侧面板上半部分，按分类存储 Markdown 总结笔记
@@ -72,7 +75,12 @@ xhs-comment-saver/
 ├── manifest.json                 # Chrome 扩展配置（Manifest V3）
 ├── .env.example                  # 旧版 API 配置迁移模板（不进入构建产物）
 ├── auth/
-│   └── auth-guard.js             # Firebase 配置检查和中文错误转换
+│   ├── auth-guard.js             # Firebase 配置、认证消息边界和中文错误转换
+│   ├── auth-service.js           # Google 登录、所有者校验和账号状态分发
+│   └── firebase-client.js        # 延迟初始化 Firebase Auth 与 Firestore
+├── auth-page/
+│   ├── index.html                # 部署到 Firebase Hosting 的登录桥页面
+│   └── sign-in.js                # Google 弹窗登录和最小令牌回传
 ├── config/
 │   ├── firebase-config.js        # 构建期 Firebase 公共配置入口
 │   └── firebase.example.json     # Firebase 本机配置示例
@@ -90,6 +98,9 @@ xhs-comment-saver/
 ├── background/                   # Service Worker
 │   ├── background.js             # 存储初始化、消息响应与页面数据变更通知
 │   └── local-dispatch.js         # 统一业务分发与旧版消息返回结构适配
+├── offscreen/
+│   ├── offscreen.html            # 扩展隐藏认证文档
+│   └── offscreen.js              # 托管页面加载与认证响应校验
 ├── content/                      # 内容脚本（注入小红书页面）
 │   ├── content.js                # 评论区控件注入、作者/正文提取、批量收藏
 │   └── content.css               # 收藏按钮、多选框、分类选择器浮层样式
@@ -165,7 +176,9 @@ xhs-comment-saver/
 
 ### Firebase 构建配置
 
-复制 `config/firebase.example.json` 为 `config/firebase.local.json` 并填写独立 Firebase 项目的公开客户端配置。此本机文件已被 Git 忽略；未创建时仍可运行 `npm run build`，扩展会以本地模式构建。Google 登录和云同步将在后续任务接入。
+复制 `config/firebase.example.json` 为 `config/firebase.local.json` 并填写独立 Firebase 项目的公开客户端配置、HTTPS `authPageUrl` 和可选 `ownerUid`。此本机文件已被 Git 忽略；未创建时仍可运行 `npm run build`，扩展会以本地模式构建，并且不会初始化 Firebase 或创建登录文档。
+
+构建会同时生成 `dist/extension` 和 `dist/hosting`。认证桥已提供后台 `cloudLogin`、`cloudLogout`、`cloudStatus` 动作，但管理页的登录控件与真实 Firebase 部署仍在后续接入；在部署 Hosting 并启用 Google 登录前，继续使用本地收藏即可。首次取得真实 UID 后，应把它填入 `ownerUid` 并重新构建，其他 Google 账号随后会被扩展拒绝。
 
 ## 技术栈
 

@@ -20,6 +20,26 @@ export function isOwnerConfigured(value) {
 }
 
 /**
+ * 只接受固定扩展、当前请求且签发时间在 0 到 120 秒内的认证响应。
+ */
+export function acceptAuthMessage(message, expected) {
+  if (!message || !expected) return false;
+  if (typeof expected.extensionId !== 'string' || !expected.extensionId) return false;
+  if (message.origin !== `chrome-extension://${expected.extensionId}`) return false;
+  if (typeof expected.requestId !== 'string' || !expected.requestId || message.requestId !== expected.requestId) {
+    return false;
+  }
+  if (!Number.isFinite(message.issuedAt) || !Number.isFinite(expected.now)) return false;
+  const age = expected.now - message.issuedAt;
+  return age >= 0 && age <= 120_000;
+}
+
+/** 构造托管页面允许返回的最小认证载荷。 */
+export function createAuthResponse(idToken, requestId, issuedAt) {
+  return { idToken, requestId, issuedAt };
+}
+
+/**
  * 将 Firebase 错误转换为用户可理解的中文提示。
  */
 export function friendlyError(error) {
