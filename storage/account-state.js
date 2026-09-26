@@ -23,6 +23,12 @@ const COMMENT_FIELDS = [
   'commentId', 'text', 'author', 'postUrl', 'postTitle', 'images', 'audio', 'groupId', 'groupIndex',
   'note', 'savedAt', 'key', 'legacyId', 'legacyKey'
 ];
+const COMMENT_INPUT_FIELDS = new Set([...COMMENT_FIELDS, 'id', 'category']);
+const COMMENT_STRING_FIELDS = [
+  'commentId', 'key', 'text', 'author', 'postUrl', 'postTitle', 'groupId', 'note', 'legacyId', 'legacyKey'
+];
+const SUMMARY_FIELDS = new Set(['content', 'updatedAt', 'generatedBy', 'model', 'provider']);
+const DANGEROUS_FIELDS = new Set(['__proto__', 'prototype', 'constructor']);
 const ACTIONS = new Set([
   'saveComment', 'saveCommentGroup', 'deleteComment', 'updateNote', 'updateCategory', 'addCategory',
   'renameCategory', 'deleteCategory', 'reorderCategories', 'saveSummary', 'deleteSummary', 'importData',
@@ -30,6 +36,47 @@ const ACTIONS = new Set([
 ]);
 
 const clone = value => structuredClone(value);
+
+function isPlainObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function validateSafeFields(value, allowed, label) {
+  if (!isPlainObject(value)) throw new Error(`${label}格式无效`);
+  for (const field of Object.keys(value)) {
+    if (DANGEROUS_FIELDS.has(field) || !allowed.has(field)) throw new Error(`${label}字段 ${field} 不允许`);
+  }
+}
+
+function mediaUrl(value, label, allowObject = false) {
+  const raw = typeof value === 'string'
+    ? value
+    : allowObject && isPlainObject(value) && Object.keys(value).length === 1 && typeof value.url === 'string'
+      ? value.url
+      : null;
+  if (raw === null) throw new Error(`${label}格式无效`);
+  try {
+    const url = new URL(raw);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error();
+  } catch {
+    throw new Error(`${label} URL 无效`);
+  }
+}
+
+function validateSummary(value, label = '总结') {
+  validateSafeFields(value, SUMMARY_FIELDS, label);
+  if (Object.hasOwn(value, 'content') && value.content != null) requireText(value.content, '总结');
+  if (Object.hasOwn(value, 'content') && value.content == null) throw new Error('总结内容格式无效');
+  if (Object.hasOwn(value, 'updatedAt')
+    && (!Number.isFinite(value.updatedAt) || value.updatedAt < 0)) throw new Error('总结更新时间无效');
+  for (const field of ['generatedBy', 'model', 'provider']) {
+    if (Object.hasOwn(value, field) && typeof value[field] !== 'string') {
+      throw new Error(`总结字段 ${field} 格式无效`);
+    }
+  }
+}
 
 function setOwn(target, key, value) {
   Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
@@ -89,22 +136,35 @@ function requireText(value, label, maximum = MAX_CONFLICT_TEXT_LENGTH) {
 }
 
 function commentPatch(comment, categoryId, extra = {}) {
-  if (!comment || typeof comment !== 'object' || Array.isArray(comment)) throw new Error('评论数据无效');
+  validateSafeFields(comment, COMMENT_INPUT_FIELDS, '评论');
+  for (const field of COMMENT_STRING_FIELDS) {
+    if (Object.hasOwn(comment, field) && comment[field] != null && typeof comment[field] !== 'string') {
+      throw new Error(`评论字段 ${field} 必须是字符串`);
+    }
+  }
+  if (Object.hasOwn(comment, 'category') && comment.category != null && typeof comment.category !== 'string') {
+    throw new Error('评论字段 category 必须是字符串');
+  }
+  if (Object.hasOwn(comment, 'savedAt') && comment.savedAt != null
+    && (!Number.isFinite(comment.savedAt) || comment.savedAt < 0)) throw new Error('评论收藏时间无效');
+  if (Object.hasOwn(comment, 'groupIndex') && comment.groupIndex != null
+    && (!Number.isInteger(comment.groupIndex) || comment.groupIndex < 0)) throw new Error('评论组序号无效');
+  if (Object.hasOwn(comment, 'id') && comment.id != null
+    && typeof comment.id !== 'string' && !(typeof comment.id === 'number' && Number.isFinite(comment.id))) {
+    throw new Error('评论旧标识格式无效');
+  }
+  if (Object.hasOwn(comment, 'images') && comment.images != null) {
+    if (!Array.isArray(comment.images)) throw new Error('评论图片格式无效');
+    for (const image of comment.images) mediaUrl(image, '评论图片');
+  }
+  if (Object.hasOwn(comment, 'audio') && comment.audio != null) mediaUrl(comment.audio, '评论语音', true);
   const patch = {};
   for (const field of COMMENT_FIELDS) {
-    if (Object.hasOwn(comment, field)) patch[field] = clone(comment[field]);
+    if (Object.hasOwn(comment, field) && comment[field] != null) patch[field] = clone(comment[field]);
   }
   if (Object.hasOwn(patch, 'text')) requireText(patch.text, '评论正文');
   if (Object.hasOwn(patch, 'note')) requireText(patch.note, '笔记');
-  if (Object.hasOwn(patch, 'images') && (!Array.isArray(patch.images)
-    || patch.images.some(image => typeof image !== 'string'))) {
-    throw new Error('评论图片格式无效');
-  }
-  if (Object.hasOwn(patch, 'audio') && patch.audio !== null && typeof patch.audio !== 'string'
-    && !(typeof patch.audio === 'object' && !Array.isArray(patch.audio) && typeof patch.audio.url === 'string')) {
-    throw new Error('评论语音格式无效');
-  }
-  return { ...patch, ...extra, categoryId, savedAt: patch.savedAt || Date.now() };
+  return { ...patch, ...extra, categoryId, savedAt: patch.savedAt ?? Date.now() };
 }
 
 function materialize(workspace) {
@@ -128,13 +188,14 @@ function queue(state, collection, recordId, patch, options = {}) {
 }
 
 async function prepareComment(workspace, source, extra = {}) {
-  if (!source || typeof source !== 'object' || Array.isArray(source)) throw new Error('评论数据无效');
+  if (!isPlainObject(source)) throw new Error('评论数据无效');
   const category = source.category == null ? '未分类' : categoryName(source.category);
   const categoryId = categoryIdByName(workspace, category);
   if (!categoryId) throw new Error('分类不存在');
+  const patch = commentPatch(source, categoryId, extra);
   const id = await commentIdentity(source);
   const existing = visibleRecords(workspace).comments[id];
-  return { id, patch: commentPatch(source, categoryId, extra), restore: existing?.deleted === true };
+  return { id, patch, restore: existing?.deleted === true, active: !!existing && !existing.deleted };
 }
 
 async function saveOne(state, source, extra = {}) {
@@ -158,13 +219,8 @@ async function importData(state, data) {
   }
   for (const name of data.categories) categoryName(typeof name === 'string' ? name : name?.name);
   for (const comment of data.comments) {
-    if (!comment || typeof comment !== 'object' || Array.isArray(comment)) {
-      throw new Error('导入数据无效：评论格式错误');
-    }
-    if (Object.hasOwn(comment, 'text')) requireText(comment.text, '评论正文');
-    if (Object.hasOwn(comment, 'note')) requireText(comment.note, '笔记');
-    commentPatch(comment, 'uncategorized');
     try {
+      commentPatch(comment, 'uncategorized');
       await commentIdentity(comment);
     } catch (error) {
       throw new Error(`导入数据无效：${error?.message || '评论无法识别'}`);
@@ -172,8 +228,11 @@ async function importData(state, data) {
   }
   for (const [name, summary] of Object.entries(data.summaries)) {
     categoryName(name);
-    const content = typeof summary === 'string' ? summary : summary?.content;
-    if (content != null) requireText(content, '总结');
+    try {
+      validateSummary(summary, '总结');
+    } catch (error) {
+      throw new Error(`导入数据无效：${error?.message || '总结格式错误'}`);
+    }
   }
   const imported = await migrateLegacy(data.comments, data.categories, data.summaries);
   if (imported.migrationIssues.length) {
@@ -232,13 +291,19 @@ export async function mutate(state, message) {
     case 'saveCommentGroup': {
       const comments = message.data?.comments ?? message.comments;
       if (!Array.isArray(comments) || comments.length === 0) throw new Error('评论组数据无效');
-      const groupId = crypto.randomUUID();
       // 先验证整组数据，避免中途遇到无效评论时留下半组记录。
-      const prepared = await Promise.all(comments.map((comment, index) => (
-        prepareComment(workspace, comment, { groupId, groupIndex: index })
-      )));
-      for (const item of prepared) {
-        queue(state, 'comments', item.id, item.patch, { restore: item.restore });
+      const candidates = await Promise.all(comments.map(comment => prepareComment(workspace, comment)));
+      const seen = new Set();
+      const prepared = candidates.filter(item => {
+        if (item.active || seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      });
+      if (!prepared.length) return [];
+      const groupId = crypto.randomUUID();
+      for (let index = 0; index < prepared.length; index += 1) {
+        const item = prepared[index];
+        queue(state, 'comments', item.id, { ...item.patch, groupId, groupIndex: index }, { restore: item.restore });
       }
       return prepared.map(item => item.id);
     }
@@ -311,8 +376,10 @@ export async function mutate(state, message) {
     }
     case 'saveSummary': {
       const category = requireCategory(workspace, message.category);
-      const content = requireText(message.content ?? message.data?.content, '总结');
-      const metadata = message.data && typeof message.data === 'object' ? message.data : {};
+      const metadata = message.data ?? {};
+      validateSummary(metadata, '总结');
+      const rawContent = Object.hasOwn(message, 'content') ? message.content : metadata.content;
+      const content = requireText(rawContent, '总结');
       const patch = { content, updatedAt: Date.now() };
       for (const field of ['generatedBy', 'model', 'provider']) {
         if (typeof metadata[field] === 'string') patch[field] = metadata[field];

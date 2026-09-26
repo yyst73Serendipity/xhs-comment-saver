@@ -137,3 +137,80 @@ test('评论组会先校验全部记录再执行首次修改', async () => {
   assert.equal(currentWorkspace(state).pending.length, 0);
   assert.equal(project(currentWorkspace(state)).comments.length, 0);
 });
+
+test('评论边界逐字段拒绝错误类型、无效媒体和危险字段', async () => {
+  const invalidValues = [
+    { commentId: 1 },
+    { commentId: '1', key: [] },
+    { commentId: '1', text: 1 },
+    { commentId: '1', author: {} },
+    { commentId: '1', postUrl: 1 },
+    { commentId: '1', postTitle: false },
+    { commentId: '1', groupId: 2 },
+    { commentId: '1', note: [] },
+    { commentId: '1', category: 3 },
+    { commentId: '1', savedAt: Number.NaN },
+    { commentId: '1', savedAt: -1 },
+    { commentId: '1', groupIndex: 1.5 },
+    { commentId: '1', images: [{ url: 'https://img.example/a.jpg' }] },
+    { commentId: '1', images: ['javascript:alert(1)'] },
+    { commentId: '1', audio: { url: 'file:///tmp/a.mp3' } },
+    { commentId: '1', tags: ['未知字段'] },
+    JSON.parse('{"commentId":"1","__proto__":{"polluted":true}}')
+  ];
+
+  for (const data of invalidValues) {
+    const state = await createState([], ['未分类'], {});
+    await assert.rejects(() => mutate(state, { action: 'saveComment', data }), /无效|格式|必须|不允许/);
+    assert.equal(project(currentWorkspace(state)).comments.length, 0);
+  }
+});
+
+test('导入总结要求安全普通对象并在完整预校验失败时保持零修改', async () => {
+  const invalidSummaries = [
+    { 学习: 1 },
+    { 学习: [] },
+    { 学习: { content: 1 } },
+    { 学习: { content: '总结', updatedAt: -1 } },
+    { 学习: { content: '总结', updatedAt: null } },
+    { 学习: { content: '总结', generatedBy: [] } },
+    { 学习: { content: '总结', generatedBy: null } },
+    { 学习: JSON.parse('{"content":"总结","__proto__":{"polluted":true}}') }
+  ];
+
+  for (const summaries of invalidSummaries) {
+    const state = await createState([], ['未分类'], {});
+    activateAccount(state, { uid: 'a' });
+    const before = JSON.stringify(currentWorkspace(state));
+    await assert.rejects(() => mutate(state, {
+      action: 'importData',
+      data: { comments: [{ commentId: 'ok' }], categories: ['未分类', '学习'], summaries }
+    }), /导入数据无效/);
+    assert.equal(JSON.stringify(currentWorkspace(state)), before);
+  }
+});
+
+test('评论组跳过已有活跃项和组内重复，只给新增与墓碑恢复项建立新组', async () => {
+  const state = await createState([], ['未分类'], {});
+  activateAccount(state, { uid: 'a' });
+  const activeId = await mutate(state, { action: 'saveComment', data: { commentId: 'active', text: '旧评论' } });
+  const deletedId = await mutate(state, { action: 'saveComment', data: { commentId: 'deleted', text: '待恢复' } });
+  await mutate(state, { action: 'deleteComment', id: deletedId });
+  const activeOperationsBefore = currentWorkspace(state).pending.filter(item => item.recordId === activeId).length;
+
+  const added = await mutate(state, { action: 'saveCommentGroup', data: { comments: [
+    { commentId: 'active', text: '不应改组' },
+    { commentId: 'new', text: '新评论' },
+    { commentId: 'new', text: '组内重复' },
+    { commentId: 'deleted', text: '恢复评论' }
+  ] } });
+
+  assert.equal(added.length, 2);
+  assert.equal(currentWorkspace(state).pending.filter(item => item.recordId === activeId).length, activeOperationsBefore);
+  const comments = project(currentWorkspace(state)).comments;
+  assert.equal(comments.find(item => item.id === activeId).groupId ?? null, null);
+  const grouped = comments.filter(item => added.includes(item.id));
+  assert.equal(grouped.length, 2);
+  assert.equal(grouped[0].groupId, grouped[1].groupId);
+  assert.deepEqual(grouped.map(item => item.groupIndex).sort(), [0, 1]);
+});
