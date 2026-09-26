@@ -21,9 +21,15 @@
   "host_permissions": [
     "*://*.xiaohongshu.com/*",
     "https://*.googleapis.com/*",
-    "https://*.firebaseapp.com/*",
-    "https://*.web.app/*"
+    "https://api.anthropic.com/*",
+    "https://api.openai.com/*",
+    "https://api.minimax.chat/*",
+    "https://api.deepseek.com/*"
   ],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'"
+  },
 
   "background": {
     "service_worker": "background/background.js",

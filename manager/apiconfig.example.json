@@ -1,0 +1,11 @@
+{
+  "activeProvider": "deepseek",
+  "providers": {
+    "deepseek": {
+      "name": "DeepSeek",
+      "baseUrl": "https://api.deepseek.com/chat/completions",
+      "model": "deepseek-chat",
+      "apiKeyRef": "DEEPSEEK_API_KEY"
+    }
+  }
+}

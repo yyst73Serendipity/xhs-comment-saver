@@ -36,6 +36,8 @@ config/firebase.local.json
 .firebase/
 .firebaserc
 firebase-debug.log
+manager/apiconfig.json
+manager/apiconfig.local.json
 
 # 构建产物
 dist/

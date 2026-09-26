@@ -3,11 +3,13 @@
  */
 import { access, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { dirname } from 'node:path';
 import { build } from 'esbuild';
 import { isConfigured, isOwnerConfigured } from '../auth/auth-guard.js';
 
 const manifest = JSON.parse(await readFile('manifest.json', 'utf8'));
-const firebaseConfig = JSON.parse(await readFile('config/firebase.local.json', 'utf8').catch(error => {
+const firebaseConfigPath = process.env.XHS_FIREBASE_CONFIG_PATH || 'config/firebase.local.json';
+const firebaseConfig = JSON.parse(await readFile(firebaseConfigPath, 'utf8').catch(error => {
   if (error.code !== 'ENOENT') throw error;
   return '{}';
 }));
@@ -38,9 +40,26 @@ await mkdir('build', { recursive: true });
 await mkdir('dist/extension', { recursive: true });
 await mkdir('dist/hosting', { recursive: true });
 
-for (const directory of ['assets', 'content', 'manager']) {
-  await cp(directory, `dist/extension/${directory}`, { recursive: true });
+// 管理页只复制公开运行文件，避免本机 API 配置或今后新增的密钥文件进入产物。
+const publicFiles = [
+  'content/content.css',
+  'content/content.js',
+  'manager/apiconfig.js',
+  'manager/manager.css',
+  'manager/manager.html',
+  'manager/manager.js'
+];
+for (const file of publicFiles) {
+  const target = `dist/extension/${file}`;
+  await mkdir(dirname(target), { recursive: true });
+  await cp(file, target);
 }
+
+// 静态图片允许递归复制，但排除系统隐藏文件。
+await cp('assets', 'dist/extension/assets', {
+  recursive: true,
+  filter: source => !source.split('/').at(-1).startsWith('.')
+});
 
 const define = {
   __FIREBASE_CONFIG__: JSON.stringify(firebaseConfig),

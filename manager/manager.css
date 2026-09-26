@@ -572,7 +572,8 @@ body {
 
 /* 标题区操作按钮（方案C：仅危险项常驻带色） */
 .btn-export,
-.btn-import {
+.btn-import,
+.btn-api-config {
   padding: 9px 18px;
   border: 1.5px solid var(--border-subtle);
   border-radius: var(--radius-full);
@@ -584,6 +585,12 @@ body {
   white-space: nowrap;
   transition: all 0.18s ease;
   box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+
+.btn-api-config:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+  background: rgba(0,0,0,0.03);
 }
 
 /* 导出：正向安全动作，hover 变绿 */

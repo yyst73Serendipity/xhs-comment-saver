@@ -38,7 +38,7 @@
 - 右侧面板上半部分，按分类存储 Markdown 总结笔记
 - 支持手动编写（实时自动保存）和 AI 自动生成（调用大模型 API）
 - 一键导出为 `.md` 文件
-- 通过 `.env` + `apiconfig.json` 配置 API 提供商和密钥
+- 管理页提供「AI 配置」入口，API Key 和当前服务商仅保存在本机 `chrome.storage.local`
 
 **成长视图（多维度数据分析）**
 - 右侧面板下半部分，四种可视化视图一键切换：
@@ -58,7 +58,7 @@
 xhs-comment-saver/
 ├── package.json                  # 测试、构建、模拟器与部署命令
 ├── manifest.json                 # Chrome 扩展配置（Manifest V3）
-├── .env.example                  # API Key 配置模板
+├── .env.example                  # 旧版 API 配置迁移模板（不进入构建产物）
 ├── auth/
 │   └── auth-guard.js             # Firebase 配置检查和中文错误转换
 ├── config/
@@ -80,9 +80,10 @@ xhs-comment-saver/
 │   ├── manager.css               # 视觉样式（v2 浅暖色 + 成长视图 + 仪表盘卡片）
 │   ├── manager.js                # 分类筛选、搜索高亮、笔记、AI 总结、四视图成长分析
 │   ├── apiconfig.js              # LLM API 提供商预设（Anthropic / OpenAI / MiniMax / DeepSeek）
-│   └── apiconfig.json            # 用户 API 配置（activeProvider、参数）
+│   └── apiconfig.example.json    # 旧版本机配置迁移示例（不含密钥）
 ├── tests/                        # 测试文件
 │   ├── auth-config.test.js       # Firebase 配置和 Manifest 权限测试
+│   ├── build-output.test.js      # 构建产物、固定 ID 与敏感文件边界测试
 │   └── storage.test.html         # 存储操作单元测试
 
 ```
@@ -109,9 +110,12 @@ xhs-comment-saver/
 
 ### 配置 AI 总结
 
-1. 复制 `.env.example` 为 `.env`，填入你的 API Key
-2. 编辑 `manager/apiconfig.json`，设置 `activeProvider`（anthropic / openai / minimax / deepseek）及对应参数
-3. 在管理页选择分类后点击 🤖 即可生成 AI 总结
+1. 打开管理页，点击顶部「AI 配置」
+2. 依次填写服务商、API Key、HTTPS API 地址和模型名称
+3. 配置仅写入当前浏览器的 `chrome.storage.local`，不会进入 Git、构建产物或 Firebase
+4. 选择具体分类后点击 🤖 即可生成 AI 总结
+
+从旧版源码直接升级时，扩展会尝试读取一次原有 `.env` 与 `manager/apiconfig.json`（或 `manager/apiconfig.local.json`），成功后迁移到本机扩展存储。确认迁移完成后可以删除旧文件。构建脚本采用公开文件白名单，不会复制这些本机配置。
 
 ### 运行测试
 

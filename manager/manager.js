@@ -77,6 +77,7 @@ const btnCancelCat = document.getElementById('btn-cancel-cat');
 const btnExport = document.getElementById('btn-export');
 const btnImport = document.getElementById('btn-import');
 const btnClear = document.getElementById('btn-clear');
+const btnApiConfig = document.getElementById('btn-api-config');
 const importFile = document.getElementById('import-file');
 const deleteModal = document.getElementById('delete-modal');
 const deleteModalBody = document.getElementById('delete-modal-body');
@@ -1902,8 +1903,8 @@ function flushAutoSave() {
 /** AI 生成总结 */
 async function aiGenerateSummary() {
   if (!window.__apiConfig || !window.__apiConfig.apiKey) {
-    alert('请先在 .env 文件中配置 API Key，在 apiconfig.json 中配置 activeProvider');
-    return;
+    const configured = await configureApi();
+    if (!configured) return;
   }
 
   const categoryComments = comments.filter(c => c.category === currentCategory);
@@ -1959,7 +1960,7 @@ ${commentsText}
 /** 调用大模型 API */
 async function callLLMApi(prompt) {
   const cfg = window.__apiConfig;
-  if (!cfg) throw new Error('API 配置未加载，请检查 apiconfig.json 和 .env');
+  if (!cfg) throw new Error('API 配置未加载，请点击页面顶部的“AI 配置”');
 
   const provider = API_PROVIDERS[cfg.provider];
   if (!provider) throw new Error('未知的 provider: ' + cfg.provider);
@@ -2090,7 +2091,7 @@ function showApiErrorModal(errCode, errMsg) {
 
   const hint = document.createElement('div');
   hint.style.cssText = 'font-size:12px;color:#b8a99a;margin-bottom:14px;text-align:center';
-  hint.textContent = '请检查 .env 和 apiconfig.json 配置后重试';
+  hint.textContent = '请点击页面顶部的“AI 配置”检查本机配置后重试';
 
   const closeBtn = document.createElement('button');
   closeBtn.className = 'btn-modal-confirm';
@@ -3168,11 +3169,13 @@ function renderDashboardTrend() {
 
 /* ===== 配置加载 ===== */
 
-/** 从 .env + apiconfig.json 加载配置 */
-async function loadApiConfig() {
+const API_CONFIG_STORAGE_KEY = 'xhs_api_config';
+
+/** 将旧版 .env 与 JSON 配置迁移到仅限本机的扩展存储。 */
+async function migrateLegacyApiConfig() {
   try {
-    // 读取 .env 解析密钥
     const envResp = await fetch('../.env');
+    if (!envResp.ok) return null;
     const envText = await envResp.text();
     const envVars = {};
     envText.split('\n').forEach(line => {
@@ -3183,30 +3186,127 @@ async function loadApiConfig() {
       envVars[trimmed.slice(0, eqIdx).trim()] = trimmed.slice(eqIdx + 1).trim();
     });
 
-    // 读取 apiconfig.json 解析参数
-    const jsonResp = await fetch('apiconfig.json');
-    const jsonConfig = await jsonResp.json();
+    let legacy = null;
+    let jsonResp = await fetch('apiconfig.local.json');
+    if (!jsonResp.ok) jsonResp = await fetch('apiconfig.json');
+    if (jsonResp.ok) legacy = await jsonResp.json();
 
-    const activeProvider = jsonConfig.activeProvider;
-    const providerConfig = jsonConfig.providers[activeProvider];
-    if (!providerConfig) {
-      console.warn('apiconfig.json 中未找到 activeProvider: ' + activeProvider);
-      return;
-    }
-
-    const apiKey = envVars[providerConfig.apiKeyRef] || '';
-    if (!apiKey) {
-      console.warn('.env 中未找到密钥: ' + providerConfig.apiKeyRef);
-    }
-
-    window.__apiConfig = {
-      provider: activeProvider,
-      apiKey,
-      baseUrl: providerConfig.baseUrl,
-      model: providerConfig.model
+    // Git 更新可能已移除旧 JSON；此时根据旧环境变量恢复常用服务商。
+    const legacyKeyRefs = {
+      anthropic: 'ANTHROPIC_API_KEY',
+      openai: 'OPENAI_API_KEY',
+      minimax: 'MINIMAX_API_KEY',
+      deepseek: 'DEEPSEEK_API_KEY'
     };
+    const provider = legacy?.activeProvider
+      || Object.keys(legacyKeyRefs).find(name => envVars[legacyKeyRefs[name]]);
+    const providerConfig = legacy?.providers?.[provider] || API_PROVIDER_DEFAULTS[provider];
+    const apiKeyRef = legacy?.providers?.[provider]?.apiKeyRef || legacyKeyRefs[provider];
+    const apiKey = envVars[apiKeyRef] || '';
+    if (!API_PROVIDERS[provider] || !providerConfig || !apiKey) return null;
+
+    const migrated = {
+      activeProvider: provider,
+      providers: {
+        [provider]: {
+          apiKey,
+          baseUrl: providerConfig.baseUrl,
+          model: providerConfig.model
+        }
+      }
+    };
+    await chrome.storage.local.set({ [API_CONFIG_STORAGE_KEY]: migrated });
+    return migrated;
+  } catch (error) {
+    return null;
+  }
+}
+
+/** 解析存储配置并更新当前页面的运行时配置。 */
+function applyApiConfig(value) {
+  const provider = value?.activeProvider;
+  const saved = value?.providers?.[provider];
+  const defaults = API_PROVIDER_DEFAULTS[provider];
+  if (!API_PROVIDERS[provider] || !saved || !defaults) {
+    window.__apiConfig = null;
+    return false;
+  }
+  window.__apiConfig = {
+    provider,
+    apiKey: saved.apiKey || '',
+    baseUrl: saved.baseUrl || defaults.baseUrl,
+    model: saved.model || defaults.model
+  };
+  return !!window.__apiConfig.apiKey;
+}
+
+/** 在管理页收集本机 AI 配置，密钥只写入 chrome.storage.local。 */
+async function configureApi() {
+  const currentProvider = window.__apiConfig?.provider || 'deepseek';
+  const provider = prompt('AI 服务商（anthropic / openai / minimax / deepseek）', currentProvider);
+  if (provider === null) return false;
+  const normalizedProvider = provider.trim().toLowerCase();
+  const defaults = API_PROVIDER_DEFAULTS[normalizedProvider];
+  if (!defaults || !API_PROVIDERS[normalizedProvider]) {
+    alert('不支持该 AI 服务商');
+    return false;
+  }
+
+  const existingApiKey = window.__apiConfig?.provider === normalizedProvider ? window.__apiConfig.apiKey : '';
+  const apiKeyInput = prompt(existingApiKey ? 'API Key（留空则保留当前值，仅保存在本机浏览器）' : 'API Key（仅保存在本机浏览器）', '');
+  const apiKey = apiKeyInput?.trim() || existingApiKey;
+  if (apiKeyInput === null) return false;
+  if (!apiKey) {
+    alert('API Key 不能为空');
+    return false;
+  }
+
+  const baseUrl = prompt('API 地址', window.__apiConfig?.provider === normalizedProvider ? window.__apiConfig.baseUrl : defaults.baseUrl);
+  if (baseUrl === null) return false;
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(baseUrl.trim());
+  } catch {
+    alert('API 地址格式无效');
+    return false;
+  }
+  if (parsedUrl.protocol !== 'https:') {
+    alert('API 地址必须使用 HTTPS');
+    return false;
+  }
+
+  const model = prompt('模型名称', window.__apiConfig?.provider === normalizedProvider ? window.__apiConfig.model : defaults.model);
+  if (model === null) return false;
+  if (!model.trim()) {
+    alert('模型名称不能为空');
+    return false;
+  }
+
+  const value = {
+    activeProvider: normalizedProvider,
+    providers: {
+      [normalizedProvider]: {
+        apiKey,
+        baseUrl: parsedUrl.href,
+        model: model.trim()
+      }
+    }
+  };
+  await chrome.storage.local.set({ [API_CONFIG_STORAGE_KEY]: value });
+  applyApiConfig(value);
+  showToast('AI 配置已保存在本机');
+  return true;
+}
+
+/** 从本机扩展存储加载配置，首次升级时兼容迁移旧配置。 */
+async function loadApiConfig() {
+  try {
+    const stored = await chrome.storage.local.get(API_CONFIG_STORAGE_KEY);
+    const value = stored[API_CONFIG_STORAGE_KEY] || await migrateLegacyApiConfig();
+    applyApiConfig(value);
   } catch (e) {
     console.warn('API 配置加载失败: ' + e.message);
+    window.__apiConfig = null;
   }
 }
 
@@ -3498,6 +3598,7 @@ searchInput.addEventListener('input', () => {
 
 // 导出按钮
 btnExport.addEventListener('click', exportData);
+btnApiConfig.addEventListener('click', configureApi);
 
 // 排序下拉框 → 展开/收起
 sortTrigger.addEventListener('click', (e) => {

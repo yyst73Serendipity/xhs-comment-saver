@@ -62,5 +62,8 @@ test('Manifest 提供云同步所需的扩展能力', async () => {
   assert.equal(manifest.background.type, 'module');
   assert.equal(typeof manifest.key, 'string');
   assert.equal(manifest.host_permissions.includes('https://*.googleapis.com/*'), true);
-  assert.equal(manifest.host_permissions.includes('https://*.firebaseapp.com/*'), true);
+  assert.equal(manifest.host_permissions.includes('https://*.firebaseapp.com/*'), false);
+  assert.equal(manifest.host_permissions.includes('https://*.web.app/*'), false);
+  assert.equal(manifest.content_security_policy.extension_pages.includes("script-src 'self'"), true);
+  assert.equal(manifest.content_security_policy.extension_pages.includes("object-src 'none'"), true);
 });
