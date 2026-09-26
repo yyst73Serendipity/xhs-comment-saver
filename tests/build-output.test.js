@@ -15,56 +15,67 @@ async function isMissing(path) {
 }
 
 test('未配置 Firebase 时构建安全且 AI 配置入口可用', async () => {
-  await run(process.execPath, ['scripts/build.js'], {
-    env: {
-      ...process.env,
-      XHS_FIREBASE_CONFIG_PATH: 'tests/fixtures/missing-firebase-config.json'
-    }
-  });
+  const temporaryDirectory = await mkdtemp('/private/tmp/xhs-build-output-');
+  const outputDirectory = `${temporaryDirectory}/dist`;
+  try {
+    await run(process.execPath, ['scripts/build.js'], {
+      env: {
+        ...process.env,
+        XHS_FIREBASE_CONFIG_PATH: 'tests/fixtures/missing-firebase-config.json',
+        XHS_BUILD_OUTPUT_DIR: outputDirectory
+      }
+    });
 
-  const sourceManifest = JSON.parse(await readFile('manifest.json', 'utf8'));
-  const builtManifest = JSON.parse(await readFile('dist/extension/manifest.json', 'utf8'));
-  const expectedId = createHash('sha256')
-    .update(Buffer.from(sourceManifest.key, 'base64'))
-    .digest('hex')
-    .slice(0, 32)
-    .replace(/[0-9a-f]/g, value => String.fromCharCode(97 + Number.parseInt(value, 16)));
+    const sourceManifest = JSON.parse(await readFile('manifest.json', 'utf8'));
+    const builtManifest = JSON.parse(await readFile(`${outputDirectory}/extension/manifest.json`, 'utf8'));
+    const expectedId = createHash('sha256')
+      .update(Buffer.from(sourceManifest.key, 'base64'))
+      .digest('hex')
+      .slice(0, 32)
+      .replace(/[0-9a-f]/g, value => String.fromCharCode(97 + Number.parseInt(value, 16)));
 
-  assert.equal((await readFile('dist/extension-id.txt', 'utf8')).trim(), expectedId);
-  assert.equal(builtManifest.host_permissions.some(value => /firebaseapp\.com|web\.app/.test(value)), false);
-  assert.equal(await isMissing('dist/extension/.env'), true);
-  assert.equal(await isMissing('dist/extension/manager/apiconfig.json'), true);
-  assert.equal(await isMissing('dist/extension/manager/apiconfig.local.json'), true);
+    assert.equal((await readFile(`${outputDirectory}/extension-id.txt`, 'utf8')).trim(), expectedId);
+    assert.equal(builtManifest.host_permissions.some(value => /firebaseapp\.com|web\.app/.test(value)), false);
+    assert.equal(await isMissing(`${outputDirectory}/extension/.env`), true);
+    assert.equal(await isMissing(`${outputDirectory}/extension/manager/apiconfig.json`), true);
+    assert.equal(await isMissing(`${outputDirectory}/extension/manager/apiconfig.local.json`), true);
 
-  const rules = await readFile('dist/firestore.rules', 'utf8');
-  assert.match(rules, /allow read, write: if false/);
+    const rules = await readFile(`${outputDirectory}/firestore.rules`, 'utf8');
+    assert.match(rules, /allow read, write: if false/);
 
-  const builtManager = await readFile('dist/extension/manager/manager.js', 'utf8');
-  const builtApiConfig = await readFile('dist/extension/manager/apiconfig.js', 'utf8');
-  const builtManagerHtml = await readFile('dist/extension/manager/manager.html', 'utf8');
-  assert.match(builtManager, /xhs_api_config/);
-  assert.match(builtManager, /configureApi/);
-  assert.match(builtApiConfig, /API_PROVIDER_DEFAULTS/);
-  assert.match(builtManagerHtml, /id="btn-api-config"/);
+    const builtManager = await readFile(`${outputDirectory}/extension/manager/manager.js`, 'utf8');
+    const builtApiConfig = await readFile(`${outputDirectory}/extension/manager/apiconfig.js`, 'utf8');
+    const builtManagerHtml = await readFile(`${outputDirectory}/extension/manager/manager.html`, 'utf8');
+    assert.match(builtManager, /xhs_api_config/);
+    assert.match(builtManager, /configureApi/);
+    assert.match(builtApiConfig, /API_PROVIDER_DEFAULTS/);
+    assert.match(builtManagerHtml, /id="btn-api-config"/);
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
 });
 
 test('已配置 Firebase 时只加入登录页的精确来源', async () => {
   const temporaryDirectory = await mkdtemp('/private/tmp/xhs-build-config-');
   const configPath = `${temporaryDirectory}/firebase.json`;
-  await writeFile(configPath, JSON.stringify({
-    apiKey: 'public-key',
-    authDomain: 'xhs-test.firebaseapp.com',
-    projectId: 'xhs-test',
-    appId: 'test-app',
-    authPageUrl: 'https://login.example.com/sign-in',
-    ownerUid: 'owner_uid'
-  }));
-
+  const outputDirectory = `${temporaryDirectory}/dist`;
   try {
+    await writeFile(configPath, JSON.stringify({
+      apiKey: 'public-key',
+      authDomain: 'xhs-test.firebaseapp.com',
+      projectId: 'xhs-test',
+      appId: 'test-app',
+      authPageUrl: 'https://login.example.com/sign-in',
+      ownerUid: 'owner_uid'
+    }));
     await run(process.execPath, ['scripts/build.js'], {
-      env: { ...process.env, XHS_FIREBASE_CONFIG_PATH: configPath }
+      env: {
+        ...process.env,
+        XHS_FIREBASE_CONFIG_PATH: configPath,
+        XHS_BUILD_OUTPUT_DIR: outputDirectory
+      }
     });
-    const manifest = JSON.parse(await readFile('dist/extension/manifest.json', 'utf8'));
+    const manifest = JSON.parse(await readFile(`${outputDirectory}/extension/manifest.json`, 'utf8'));
     assert.equal(manifest.host_permissions.includes('https://login.example.com/*'), true);
     assert.equal(manifest.host_permissions.some(value => value.includes('*.firebaseapp.com')), false);
     assert.equal(manifest.host_permissions.some(value => value.includes('*.web.app')), false);
