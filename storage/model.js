@@ -125,6 +125,11 @@ function mergeDuplicateComment(existing, incoming, recordId) {
   const older = incomingIsNewer ? existing : incoming;
   const data = {};
   for (const field of new Set([...Object.keys(older.data), ...Object.keys(newer.data)])) {
+    if (field === 'note') {
+      if (Object.hasOwn(newer.data, field)) data[field] = clone(newer.data[field]);
+      else if (Object.hasOwn(older.data, field)) data[field] = clone(older.data[field]);
+      continue;
+    }
     data[field] = clone(hasMigrationValue(newer.data[field]) ? newer.data[field] : older.data[field]);
   }
   data.categoryId ||= 'uncategorized';
@@ -132,7 +137,8 @@ function mergeDuplicateComment(existing, incoming, recordId) {
   const conflicts = [...(existing.conflicts || []), ...(incoming.conflicts || [])];
   const newerNote = newer.data.note;
   const olderNote = older.data.note;
-  if (hasMigrationValue(newerNote) && hasMigrationValue(olderNote) && newerNote !== olderNote) {
+  if (Object.hasOwn(newer.data, 'note') && Object.hasOwn(older.data, 'note')
+    && typeof newerNote === 'string' && typeof olderNote === 'string' && newerNote !== olderNote) {
     const local = String(olderNote).slice(0, MAX_CONFLICT_TEXT_LENGTH);
     if (!conflicts.some(conflict => conflict.field === 'note' && conflict.local === local)) {
       conflicts.push({ id: `migration-${recordId}-${crypto.randomUUID()}`, field: 'note', local });
@@ -358,7 +364,7 @@ function hasMergeValue(value) {
 }
 
 function hasMergeFieldValue(field, value) {
-  if (field === 'savedAt') return Number.isFinite(value) && value > 0;
+  if (field === 'savedAt' || field === 'updatedAt') return Number.isFinite(value) && value > 0;
   return hasMergeValue(value);
 }
 
@@ -465,10 +471,17 @@ export function mergeGuest(guest, account) {
         restore: existing?.deleted === true,
         conflicts: summary.conflicts
       });
-    } else if ((Object.hasOwn(summary.data, 'content') && summary.data.content !== existing.data.content) || summary.conflicts?.length) {
-      const patch = Object.hasOwn(summary.data, 'content') && summary.data.content !== existing.data.content
-        ? { content: summary.data.content }
-        : {};
+    } else {
+      const patch = {};
+      for (const [field, value] of Object.entries(summary.data)) {
+        if (field !== 'content' && hasMergeFieldValue(field, value) && !hasMergeFieldValue(field, existing.data[field])) {
+          patch[field] = clone(value);
+        }
+      }
+      if (Object.hasOwn(summary.data, 'content') && summary.data.content !== existing.data.content) {
+        patch.content = summary.data.content;
+      }
+      if (!Object.keys(patch).length && !summary.conflicts?.length) continue;
       result = enqueueOperation(result, 'summaries', targetId, patch, {
         // 访客总结与账号总结来自独立空间，应明确进入冲突解决流程。
         baseRevision: (existing.revision || 0) - 1,

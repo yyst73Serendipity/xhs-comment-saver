@@ -98,6 +98,40 @@ test('多个同时间的不同旧笔记都不会在迁移中静默丢失', async
   assert.deepEqual(value.conflicts.map(item => item.local).sort(), ['版本一', '版本二']);
 });
 
+test('重复迁移以较新的显式清空笔记为主并保留旧笔记冲突', async () => {
+  const space = await model.migrateLegacy([
+    { commentId: 'clear-newer', text: '正文', note: '旧笔记', savedAt: 1 },
+    { commentId: 'clear-newer', text: '正文', note: '', savedAt: 2 }
+  ], ['未分类'], {});
+  const value = space.remote.comments['comment-clear-newer'];
+
+  assert.equal(value.data.note, '');
+  assert.deepEqual(value.conflicts.map(item => item.local), ['旧笔记']);
+});
+
+test('重复迁移以较新的非空笔记为主并保留旧清空冲突', async () => {
+  const space = await model.migrateLegacy([
+    { commentId: 'clear-older', text: '正文', note: '', savedAt: 1 },
+    { commentId: 'clear-older', text: '正文', note: '新笔记', savedAt: 2 }
+  ], ['未分类'], {});
+  const value = space.remote.comments['comment-clear-older'];
+
+  assert.equal(value.data.note, '新笔记');
+  assert.equal(value.conflicts.length, 1);
+  assert.equal(value.conflicts[0].local, '');
+});
+
+test('较新重复评论缺少 note 时继承较旧的显式笔记且不制造冲突', async () => {
+  const space = await model.migrateLegacy([
+    { commentId: 'missing-newer', text: '旧正文', note: '旧笔记', savedAt: 1 },
+    { commentId: 'missing-newer', text: '新正文', savedAt: 2 }
+  ], ['未分类'], {});
+  const value = space.remote.comments['comment-missing-newer'];
+
+  assert.equal(value.data.note, '旧笔记');
+  assert.deepEqual(value.conflicts, []);
+});
+
 test('默认分类 ID 固定且自定义分类使用 UUID', async () => {
   const space = await model.migrateLegacy([], ['未分类', '好物', '避雷', '搞笑', '学习'], {});
 
@@ -239,6 +273,27 @@ test('访客清空总结会进入迁移预览并作为冲突版本上传', async
   assert.equal(cloud.conflicts[0].local, '');
 });
 
+test('访客总结补齐账号缺失元数据且保留账号已有值', async () => {
+  const guest = await model.migrateLegacy([], ['未分类', '好物'], {
+    好物: { content: '相同总结', updatedAt: 20, generatedBy: 'ai', model: 'guest-model', provider: 'guest-provider' }
+  });
+  const account = await model.migrateLegacy([], ['未分类', '好物'], {
+    好物: { content: '相同总结', updatedAt: 0, generatedBy: '', provider: 'account-provider' }
+  });
+
+  const merged = model.mergeGuest(guest, account);
+  const operation = merged.pending.find(item => item.collection === 'summaries');
+  const visible = model.visibleRecords(merged).summaries['good-things'];
+
+  assert.equal(operation.patch.content, undefined);
+  assert.equal(operation.patch.updatedAt, 20);
+  assert.equal(operation.patch.generatedBy, 'ai');
+  assert.equal(operation.patch.model, 'guest-model');
+  assert.equal(operation.patch.provider, undefined);
+  assert.equal(visible.data.provider, 'account-provider');
+  assert.equal(visible.data.updatedAt, 20);
+});
+
 test('缺失 note 不产生清空冲突而明确空字符串会产生', async () => {
   const account = await model.migrateLegacy([
     { commentId: 'optional-note', text: '正文', note: '账号笔记' }
@@ -269,7 +324,9 @@ test('缺失 summary content 不产生清空冲突而明确空字符串会产生
   assert.equal(Object.hasOwn(missing.remote.summaries['good-things'].data, 'content'), false);
   assert.equal(model.project(missing).summaries['好物'].content, '');
   assert.equal(model.migrationPreview(missing, account).summaryConflicts, 0);
-  assert.equal(model.mergeGuest(missing, account).pending.some(item => item.collection === 'summaries'), false);
+  const metadataOperation = model.mergeGuest(missing, account).pending.find(item => item.collection === 'summaries');
+  assert.equal(Object.hasOwn(metadataOperation.patch, 'content'), false);
+  assert.equal(metadataOperation.patch.updatedAt, 1);
 
   assert.equal(Object.hasOwn(clearing.remote.summaries['good-things'].data, 'content'), true);
   assert.equal(model.migrationPreview(clearing, account).summaryConflicts, 1);
