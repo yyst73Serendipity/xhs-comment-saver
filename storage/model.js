@@ -101,8 +101,15 @@ export function emptyWorkspace() {
     pending: [],
     cursors: { comments: null, categories: null, summaries: null, settings: null },
     lastSync: 0,
-    migrationIssues: []
+    migrationIssues: [],
+    migrationQuarantine: { comments: [], categories: [], summaries: [] }
   };
+}
+
+function quarantineMigration(workspace, type, index, raw, reason, details = {}) {
+  const issueType = { comments: 'comment', categories: 'category', summaries: 'summary' }[type];
+  workspace.migrationIssues.push({ type: issueType, ...details, reason });
+  workspace.migrationQuarantine[type].push({ index, ...details, reason, raw: clone(raw) });
 }
 
 function normalizeText(value) {
@@ -249,7 +256,12 @@ function mergeDuplicateComment(existing, incoming, recordId) {
 /** 把旧数组和分类名称转换成稳定 ID 的版本化工作区。 */
 export async function migrateLegacy(comments = [], categories = DEFAULT_CATEGORIES, summaries = {}) {
   const workspace = emptyWorkspace();
-  const suppliedNames = Array.isArray(categories) ? categories.map(categoryName).filter(Boolean) : [];
+  const suppliedNames = [];
+  for (const [index, source] of (Array.isArray(categories) ? categories : []).entries()) {
+    const name = categoryName(source);
+    if (name) suppliedNames.push(name);
+    else quarantineMigration(workspace, 'categories', index, source, '分类名称格式无效');
+  }
   const names = [...new Set(['未分类', ...suppliedNames])];
   const idsByName = new Map();
 
@@ -260,8 +272,13 @@ export async function migrateLegacy(comments = [], categories = DEFAULT_CATEGORI
   }
   workspace.remote.settings.main = newRecord({ categoryOrder: names.map(name => idsByName.get(name)) });
 
-  for (const source of Array.isArray(comments) ? comments : []) {
-    if (!validLegacyComment(source)) continue;
+  for (const [index, source] of (Array.isArray(comments) ? comments : []).entries()) {
+    if (!validLegacyComment(source)) {
+      quarantineMigration(workspace, 'comments', index, source, '评论缺少可用于去重的稳定标识', {
+        legacyId: source?.id ?? source?.commentId ?? null
+      });
+      continue;
+    }
     try {
       const sourceCategory = categoryName(source.category);
       const categoryId = sourceCategory ? idsByName.get(sourceCategory) || 'uncategorized' : '';
@@ -274,18 +291,26 @@ export async function migrateLegacy(comments = [], categories = DEFAULT_CATEGORI
         ? mergeDuplicateComment(existing, incoming, id)
         : newRecord({ ...data, categoryId: data.categoryId || 'uncategorized' });
     } catch (error) {
-      workspace.migrationIssues.push({
-        type: 'comment',
+      quarantineMigration(workspace, 'comments', index, source, error?.message || '评论无法迁移', {
         legacyId: source.id ?? source.commentId ?? null,
-        reason: error?.message || '评论无法迁移'
       });
     }
   }
 
   if (summaries && typeof summaries === 'object' && !Array.isArray(summaries)) {
-    for (const [name, legacySummary] of Object.entries(summaries)) {
+    for (const [index, [name, legacySummary]] of Object.entries(summaries).entries()) {
       const id = idsByName.get(categoryName(name));
-      if (!id || legacySummary == null) continue;
+      if (!id || legacySummary == null) {
+        quarantineMigration(
+          workspace,
+          'summaries',
+          index,
+          legacySummary,
+          !id ? '总结分类不存在' : '总结内容格式无效',
+          { category: name }
+        );
+        continue;
+      }
       try {
         const data = typeof legacySummary === 'string' ? { content: legacySummary } : clone(legacySummary);
         if (Object.hasOwn(data, 'content') && typeof data.content !== 'string') throw new Error('总结内容格式无效');
@@ -293,10 +318,8 @@ export async function migrateLegacy(comments = [], categories = DEFAULT_CATEGORI
         validateTextBoundary('summaries', data);
         workspace.remote.summaries[id] = newRecord(data);
       } catch (error) {
-        workspace.migrationIssues.push({
-          type: 'summary',
+        quarantineMigration(workspace, 'summaries', index, legacySummary, error?.message || '分类总结无法迁移', {
           category: name,
-          reason: error?.message || '分类总结无法迁移'
         });
       }
     }
@@ -434,6 +457,25 @@ function appendOperation(workspace, records, collection, recordId, patch, option
   const applied = applyVisibleOperation(previous || newRecord({}), operation);
   if (applied !== previous) setOwn(records[collection], recordId, applied);
   return operation;
+}
+
+/** 在一次工作区克隆内安全追加多项操作，并可直接物化访客工作区。 */
+export async function appendWorkspaceOperations(workspace, callback, options = {}) {
+  if (typeof callback !== 'function') throw new Error('批量操作函数无效');
+  const result = clone(workspace);
+  const records = workingRecords(result);
+  const append = (collection, recordId, patch, operationOptions = {}) => (
+    appendOperation(result, records, collection, recordId, patch, operationOptions)
+  );
+  const value = await callback({ records, append });
+  if (options.materialize === true) {
+    for (const operation of result.pending) {
+      const previous = result.remote[operation.collection][operation.recordId];
+      setOwn(result.remote[operation.collection], operation.recordId, mergeOperation(previous, operation));
+    }
+    result.pending = [];
+  }
+  return { workspace: result, value };
 }
 
 function conflictField(collection, field) {

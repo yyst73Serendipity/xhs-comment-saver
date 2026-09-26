@@ -9,7 +9,7 @@ import {
   currentWorkspace,
   mutate
 } from '../storage/account-state.js';
-import { MAX_CONFLICT_TEXT_LENGTH, project, visibleRecords } from '../storage/model.js';
+import { MAX_CONFLICT_TEXT_LENGTH, migrateLegacy, project, visibleRecords } from '../storage/model.js';
 
 test('切换账号只切命名空间且不会搬运待上传修改', async () => {
   const state = await createState([], ['未分类'], {});
@@ -293,4 +293,49 @@ test('导入两边单独合法但合并后超预算时保持账号状态不变',
     }
   }), /记录过大/);
   assert.equal(JSON.stringify(currentWorkspace(state)), before);
+});
+
+test('批量收藏五百条评论只克隆一次完整工作区', async () => {
+  const state = await createState([], ['未分类'], {});
+  activateAccount(state, { uid: 'a' });
+  const comments = Array.from({ length: 500 }, (_, index) => ({ commentId: `batch-${index}`, text: `评论 ${index}` }));
+  const originalStructuredClone = globalThis.structuredClone;
+  let workspaceCloneCount = 0;
+  globalThis.structuredClone = value => {
+    if (value?.remote && Array.isArray(value.pending) && value.cursors) workspaceCloneCount += 1;
+    return originalStructuredClone(value);
+  };
+  const startedAt = performance.now();
+  try {
+    await mutate(state, { action: 'saveCommentGroup', data: { comments } });
+  } finally {
+    globalThis.structuredClone = originalStructuredClone;
+  }
+
+  assert.equal(workspaceCloneCount, 1);
+  assert.equal(currentWorkspace(state).pending.filter(item => item.collection === 'comments').length, 500);
+  assert.equal(performance.now() - startedAt < 5_000, true);
+});
+
+test('清空两千条评论使用一次完整克隆并生成线性墓碑队列', async () => {
+  const comments = Array.from({ length: 2_000 }, (_, index) => ({ commentId: `clear-${index}`, text: `评论 ${index}` }));
+  const state = await createState([], ['未分类'], {});
+  activateAccount(state, { uid: 'a' });
+  state.accounts.a.workspace = await migrateLegacy(comments, ['未分类'], {});
+  const originalStructuredClone = globalThis.structuredClone;
+  let workspaceCloneCount = 0;
+  globalThis.structuredClone = value => {
+    if (value?.remote && Array.isArray(value.pending) && value.cursors) workspaceCloneCount += 1;
+    return originalStructuredClone(value);
+  };
+  const startedAt = performance.now();
+  try {
+    await mutate(state, { action: 'clearAll' });
+  } finally {
+    globalThis.structuredClone = originalStructuredClone;
+  }
+
+  assert.equal(workspaceCloneCount, 1);
+  assert.equal(currentWorkspace(state).pending.filter(item => item.collection === 'comments').length, 2_000);
+  assert.equal(performance.now() - startedAt < 5_000, true);
 });

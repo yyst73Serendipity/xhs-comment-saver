@@ -6,16 +6,13 @@ import { project } from './model.js';
 
 export const STATE_KEY = 'xhs_comment_state_v2';
 const LEGACY_KEYS = ['xhs_comments', 'xhs_categories', 'xhs_summaries'];
+let sharedTail = Promise.resolve();
 
 export class LocalStore {
-  constructor() {
-    this.tail = Promise.resolve();
-  }
-
   /** 串行读取最新状态、执行修改，并只调用一次 storage.set 原子提交。 */
   update(callback) {
     if (typeof callback !== 'function') return Promise.reject(new Error('本地存储更新函数无效'));
-    const task = this.tail.then(async () => {
+    const task = sharedTail.then(async () => {
       const saved = await chrome.storage.local.get([STATE_KEY, ...LEGACY_KEYS]);
       const source = saved[STATE_KEY] || await createState(
         saved.xhs_comments || [],
@@ -34,13 +31,13 @@ export class LocalStore {
       });
       return result;
     });
-    this.tail = task.catch(() => {});
+    sharedTail = task.catch(() => {});
     return task;
   }
 
   /** 等待正在进行的写入后读取持久化状态。 */
   async read() {
-    await this.tail;
+    await sharedTail;
     const saved = await chrome.storage.local.get(STATE_KEY);
     return saved[STATE_KEY] || null;
   }

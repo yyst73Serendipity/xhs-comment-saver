@@ -81,3 +81,46 @@ test('失败更新不会写入半成品且后续更新仍可继续', async () =>
   assert.equal(storage.saved[STATE_KEY].recovered, true);
   assert.equal((await store.read()).recovered, true);
 });
+
+test('首次迁移失败项保留完整原文且成功数据不会重复备份', async () => {
+  const invalidComment = { author: '无法识别作者', custom: { source: '旧版', value: 7 } };
+  const invalidSummary = { content: '总'.repeat(100_001), generatedBy: 'manual', extra: { keep: true } };
+  const storage = installStorage({
+    xhs_comments: [invalidComment, { commentId: 'ok', text: '成功评论' }],
+    xhs_categories: ['未分类', '学习'],
+    xhs_summaries: { 学习: invalidSummary }
+  });
+
+  await new LocalStore().update(() => {});
+
+  const guest = storage.saved[STATE_KEY].guest;
+  assert.equal(guest.migrationQuarantine.comments.length, 1);
+  assert.deepEqual(guest.migrationQuarantine.comments[0].raw, invalidComment);
+  assert.match(guest.migrationQuarantine.comments[0].reason, /稳定标识/);
+  assert.equal(guest.migrationQuarantine.comments[0].index, 0);
+  assert.equal(guest.migrationQuarantine.summaries.length, 1);
+  assert.deepEqual(guest.migrationQuarantine.summaries[0].raw, invalidSummary);
+  assert.equal(guest.migrationQuarantine.summaries[0].category, '学习');
+  assert.equal(guest.migrationQuarantine.summaries[0].index, 0);
+  assert.equal(guest.migrationQuarantine.categories.length, 0);
+  assert.equal(JSON.stringify(guest.migrationQuarantine).includes('成功评论'), false);
+  assert.deepEqual(storage.saved.xhs_comments.map(comment => comment.text), ['成功评论']);
+});
+
+test('不同 LocalStore 实例共享写锁且失败不会阻塞后续实例', async () => {
+  const storage = installStorage();
+  const firstStore = new LocalStore();
+  const secondStore = new LocalStore();
+  const first = firstStore.update(async state => {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    state.first = true;
+  });
+  const second = secondStore.update(state => { state.second = true; });
+  await Promise.all([first, second]);
+  assert.equal(storage.saved[STATE_KEY].first, true);
+  assert.equal(storage.saved[STATE_KEY].second, true);
+
+  await assert.rejects(() => firstStore.update(() => { throw new Error('跨实例失败'); }), /跨实例失败/);
+  await secondStore.update(state => { state.recoveredAcrossInstances = true; });
+  assert.equal(storage.saved[STATE_KEY].recoveredAcrossInstances, true);
+});

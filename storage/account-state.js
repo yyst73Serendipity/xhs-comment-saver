@@ -4,6 +4,7 @@
 import {
   COLLECTIONS,
   MAX_CONFLICT_TEXT_LENGTH,
+  appendWorkspaceOperations,
   commentIdentity,
   emptyWorkspace,
   enqueueOperation,
@@ -128,17 +129,28 @@ function categoryName(value) {
   return name;
 }
 
-function categoryEntries(workspace) {
-  return Object.entries(visibleRecords(workspace).categories).filter(([, value]) => !value.deleted);
+function categoryEntriesFromRecords(records) {
+  return Object.entries(records.categories).filter(([, value]) => !value.deleted);
+}
+
+function categoryIdByNameFromRecords(records, name) {
+  return categoryEntriesFromRecords(records).find(([, value]) => value.data.name === name)?.[0] || null;
 }
 
 function categoryIdByName(workspace, name) {
-  return categoryEntries(workspace).find(([, value]) => value.data.name === name)?.[0] || null;
+  return categoryIdByNameFromRecords(visibleRecords(workspace), name);
 }
 
 function requireCategory(workspace, name) {
   const normalized = categoryName(name);
   const id = categoryIdByName(workspace, normalized);
+  if (!id) throw new Error('分类不存在');
+  return { id, name: normalized };
+}
+
+function requireCategoryFromRecords(records, name) {
+  const normalized = categoryName(name);
+  const id = categoryIdByNameFromRecords(records, normalized);
   if (!id) throw new Error('分类不存在');
   return { id, name: normalized };
 }
@@ -217,14 +229,23 @@ function queue(state, collection, recordId, patch, options = {}) {
   replaceCurrent(state, state.activeAccountUid === null ? materialize(next) : next);
 }
 
-async function prepareComment(workspace, source, extra = {}) {
+async function queueBatch(state, callback) {
+  const result = await appendWorkspaceOperations(currentWorkspace(state), callback, {
+    materialize: state.activeAccountUid === null
+  });
+  replaceCurrent(state, result.workspace);
+  return result.value;
+}
+
+async function prepareComment(workspace, source, extra = {}, preparedRecords = null) {
   if (!isPlainObject(source)) throw new Error('评论数据无效');
+  const records = preparedRecords || visibleRecords(workspace);
   const category = source.category == null ? '未分类' : categoryName(source.category);
-  const categoryId = categoryIdByName(workspace, category);
+  const categoryId = categoryIdByNameFromRecords(records, category);
   if (!categoryId) throw new Error('分类不存在');
   const patch = commentPatch(source, categoryId, extra);
   const id = await commentIdentity(source);
-  const existing = visibleRecords(workspace).comments[id];
+  const existing = records.comments[id];
   return { id, patch, restore: existing?.deleted === true, active: !!existing && !existing.deleted };
 }
 
@@ -236,7 +257,10 @@ async function saveOne(state, source, extra = {}) {
 }
 
 function orderedCategoryIds(workspace) {
-  const records = visibleRecords(workspace);
+  return orderedCategoryIdsFromRecords(visibleRecords(workspace));
+}
+
+function orderedCategoryIdsFromRecords(records) {
   const active = new Set(Object.entries(records.categories).filter(([, value]) => !value.deleted).map(([id]) => id));
   const configured = records.settings.main?.data.categoryOrder || [];
   return [...new Set(['uncategorized', ...configured, ...active])].filter(id => active.has(id));
@@ -322,21 +346,23 @@ export async function mutate(state, message) {
     case 'saveCommentGroup': {
       const comments = message.data?.comments ?? message.comments;
       if (!Array.isArray(comments) || comments.length === 0) throw new Error('评论组数据无效');
-      // 先验证整组数据，避免中途遇到无效评论时留下半组记录。
-      const candidates = await Promise.all(comments.map(comment => prepareComment(workspace, comment)));
-      const seen = new Set();
-      const prepared = candidates.filter(item => {
-        if (item.active || seen.has(item.id)) return false;
-        seen.add(item.id);
-        return true;
+      return queueBatch(state, async ({ records, append }) => {
+        // 先验证整组数据，避免中途遇到无效评论时留下半组记录。
+        const candidates = await Promise.all(comments.map(comment => prepareComment(workspace, comment, {}, records)));
+        const seen = new Set();
+        const prepared = candidates.filter(item => {
+          if (item.active || seen.has(item.id)) return false;
+          seen.add(item.id);
+          return true;
+        });
+        if (!prepared.length) return [];
+        const groupId = crypto.randomUUID();
+        for (let index = 0; index < prepared.length; index += 1) {
+          const item = prepared[index];
+          append('comments', item.id, { ...item.patch, groupId, groupIndex: index }, { restore: item.restore });
+        }
+        return prepared.map(item => item.id);
       });
-      if (!prepared.length) return [];
-      const groupId = crypto.randomUUID();
-      for (let index = 0; index < prepared.length; index += 1) {
-        const item = prepared[index];
-        queue(state, 'comments', item.id, { ...item.patch, groupId, groupIndex: index }, { restore: item.restore });
-      }
-      return prepared.map(item => item.id);
     }
     case 'deleteComment': {
       const id = requireId(message.id, '评论 ID');
@@ -352,25 +378,27 @@ export async function mutate(state, message) {
     }
     case 'updateCategory': {
       const id = requireId(message.id, '评论 ID');
-      const comment = activeEntry(workspace, 'comments', id);
-      if (!comment) throw new Error('评论不存在');
-      const target = requireCategory(workspace, message.category);
-      const groupId = comment.data.groupId;
-      const ids = groupId
-        ? Object.entries(visibleRecords(workspace).comments)
-          .filter(([, value]) => !value.deleted && value.data.groupId === groupId).map(([recordId]) => recordId)
-        : [id];
-      for (const recordId of ids) queue(state, 'comments', recordId, { categoryId: target.id });
-      return;
+      return queueBatch(state, ({ records, append }) => {
+        const comment = records.comments[id];
+        if (!comment || comment.deleted) throw new Error('评论不存在');
+        const target = requireCategoryFromRecords(records, message.category);
+        const groupId = comment.data.groupId;
+        const ids = groupId
+          ? Object.entries(records.comments)
+            .filter(([, value]) => !value.deleted && value.data.groupId === groupId).map(([recordId]) => recordId)
+          : [id];
+        for (const recordId of ids) append('comments', recordId, { categoryId: target.id });
+      });
     }
     case 'addCategory': {
       const name = categoryName(message.name);
-      if (categoryIdByName(workspace, name)) throw new Error('分类已存在');
       const id = crypto.randomUUID();
-      queue(state, 'categories', id, { name, createdAt: Date.now(), updatedAt: Date.now() });
-      workspace = currentWorkspace(state);
-      queue(state, 'settings', 'main', { categoryOrder: orderedCategoryIds(workspace) });
-      return id;
+      return queueBatch(state, ({ records, append }) => {
+        if (categoryIdByNameFromRecords(records, name)) throw new Error('分类已存在');
+        append('categories', id, { name, createdAt: Date.now(), updatedAt: Date.now() });
+        append('settings', 'main', { categoryOrder: orderedCategoryIdsFromRecords(records) });
+        return id;
+      });
     }
     case 'renameCategory': {
       const source = requireCategory(workspace, message.oldName);
@@ -382,18 +410,20 @@ export async function mutate(state, message) {
       return;
     }
     case 'deleteCategory': {
-      const source = requireCategory(workspace, message.name);
-      if (source.id === 'uncategorized') throw new Error('「未分类」不可删除');
-      const records = visibleRecords(workspace);
-      for (const [id, comment] of Object.entries(records.comments)) {
-        if (!comment.deleted && comment.data.categoryId === source.id) queue(state, 'comments', id, { categoryId: 'uncategorized' });
-      }
-      workspace = currentWorkspace(state);
-      if (activeEntry(workspace, 'summaries', source.id)) queue(state, 'summaries', source.id, {}, { deleted: true });
-      queue(state, 'categories', source.id, {}, { deleted: true });
-      workspace = currentWorkspace(state);
-      queue(state, 'settings', 'main', { categoryOrder: orderedCategoryIds(workspace) });
-      return;
+      return queueBatch(state, ({ records, append }) => {
+        const source = requireCategoryFromRecords(records, message.name);
+        if (source.id === 'uncategorized') throw new Error('「未分类」不可删除');
+        for (const [id, comment] of Object.entries(records.comments)) {
+          if (!comment.deleted && comment.data.categoryId === source.id) {
+            append('comments', id, { categoryId: 'uncategorized' });
+          }
+        }
+        if (records.summaries[source.id] && !records.summaries[source.id].deleted) {
+          append('summaries', source.id, {}, { deleted: true });
+        }
+        append('categories', source.id, {}, { deleted: true });
+        append('settings', 'main', { categoryOrder: orderedCategoryIdsFromRecords(records) });
+      });
     }
     case 'reorderCategories': {
       if (!Array.isArray(message.categories)) throw new Error('分类顺序无效');
@@ -429,17 +459,17 @@ export async function mutate(state, message) {
     case 'importData':
       return importData(state, message.data);
     case 'clearAll': {
-      const records = visibleRecords(workspace);
-      for (const collection of ['comments', 'summaries']) {
-        for (const [id, record] of Object.entries(records[collection])) {
-          if (!record.deleted) queue(state, collection, id, {}, { deleted: true });
+      return queueBatch(state, ({ records, append }) => {
+        for (const collection of ['comments', 'summaries']) {
+          for (const [id, record] of Object.entries(records[collection])) {
+            if (!record.deleted) append(collection, id, {}, { deleted: true });
+          }
         }
-      }
-      for (const [id, record] of Object.entries(records.categories)) {
-        if (id !== 'uncategorized' && !record.deleted) queue(state, 'categories', id, {}, { deleted: true });
-      }
-      queue(state, 'settings', 'main', { categoryOrder: ['uncategorized'] });
-      return;
+        for (const [id, record] of Object.entries(records.categories)) {
+          if (id !== 'uncategorized' && !record.deleted) append('categories', id, {}, { deleted: true });
+        }
+        append('settings', 'main', { categoryOrder: ['uncategorized'] });
+      });
     }
     case 'resolveConflict': {
       const collection = message.collection;
