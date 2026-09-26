@@ -87,6 +87,7 @@ xhs-comment-saver/
 │   ├── auth-config.test.js       # Firebase 配置和 Manifest 权限测试
 │   ├── api-config.test.js        # AI 配置迁移和 API 来源边界测试
 │   ├── build-output.test.js      # 构建产物、固定 ID 与敏感文件边界测试
+│   ├── readme-upgrade.test.js     # 升级前导出与恢复顺序契约测试
 │   └── storage.test.html         # 存储操作单元测试
 
 ```
@@ -101,6 +102,19 @@ xhs-comment-saver/
 4. 点击「加载已解压的扩展程序」
 5. 选择 `xhs-comment-saver/dist/extension`，确认
 6. 扩展图标出现在浏览器工具栏，即安装成功
+
+### 从源码目录升级到构建版
+
+更换 unpacked 加载目录可能清除 `chrome.storage.local` 中的评论、分类、AI 总结和本机设置。必须严格按以下顺序操作：
+
+1. 保持旧源码版扩展仍处于安装状态，打开旧管理页并点击「导出」，下载完整 JSON 备份
+2. 在 Finder 或下载目录中确认文件已落盘，并确认该 JSON 文件可以正常找到；没有确认前不要卸载扩展
+3. 运行 `npm run build` 生成 `dist/extension`
+4. 完成备份确认后，再卸载旧扩展，并在 Chrome 扩展管理页加载 `dist/extension`，完成加载目录切换
+5. 打开新管理页点击「导入」，选择刚才的 JSON 文件，恢复评论、分类和 AI 总结，并检查数量是否符合预期
+6. 点击顶部「AI 配置」，重新输入 API Key 和服务商配置
+
+固定扩展 ID 不能保证数据跨卸载保留；JSON 备份是此次升级的数据迁移依据。
 
 ### 使用
 
@@ -118,7 +132,7 @@ xhs-comment-saver/
 3. 配置仅写入当前浏览器的 `chrome.storage.local`，不会进入 Git、构建产物或 Firebase
 4. 选择具体分类后点击 🤖 即可生成 AI 总结
 
-首次从源码加载目录切换到 `dist/extension` 时，通常需要卸载并重新加载扩展，而卸载可能清除 `chrome.storage.local`。因此切换完成后，请在构建版管理页点击顶部「AI 配置」，重新输入一次 API Key 和服务商；之后配置会保存在当前安装实例中。
+如果是从源码目录升级到 `dist/extension`，必须先完成上面的“导出备份 → 确认落盘 → 卸载并加载构建版 → 导入恢复”流程，再在构建版顶部「AI 配置」重新输入一次 API Key 和服务商；之后配置只保存在当前安装实例中。
 
 如果始终沿用同一个源码加载路径，只更新代码并点击 Chrome 的“重新加载”，新版管理页可以把旧 `.env` 与 `manager/apiconfig.json`（或 `manager/apiconfig.local.json`）迁移到该安装实例的本机存储，并显示迁移成功提示。此便利迁移不适用于卸载后切换目录。
 
