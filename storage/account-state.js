@@ -12,6 +12,13 @@ import {
   migrateLegacy,
   visibleRecords
 } from './model.js';
+import {
+  SYNC_INPUT_LIMITS,
+  requireRecordBudget,
+  requireUtf8Boundary
+} from './sync-limits.js';
+
+export { SYNC_INPUT_LIMITS } from './sync-limits.js';
 
 const DEFAULT_CATEGORIES = [
   ['uncategorized', '未分类'],
@@ -29,31 +36,6 @@ const COMMENT_STRING_FIELDS = [
 ];
 const SUMMARY_FIELDS = new Set(['content', 'updatedAt', 'generatedBy', 'model', 'provider']);
 const DANGEROUS_FIELDS = new Set(['__proto__', 'prototype', 'constructor']);
-// 这些边界要在 Firestore Rules 中使用相同或更严格的值，给文档元数据和规则开销留足余量。
-export const SYNC_INPUT_LIMITS = Object.freeze({
-  recordDataBytes: 700 * 1024,
-  imagesPerComment: 100,
-  mediaUrlBytes: 16 * 1024,
-  commentStringBytes: Object.freeze({
-    id: 16 * 1024,
-    commentId: 512,
-    key: 16 * 1024,
-    text: 300 * 1024,
-    author: 8 * 1024,
-    postUrl: 16 * 1024,
-    postTitle: 32 * 1024,
-    groupId: 512,
-    note: 300 * 1024,
-    legacyId: 16 * 1024,
-    legacyKey: 16 * 1024
-  }),
-  summaryStringBytes: Object.freeze({
-    content: 300 * 1024,
-    generatedBy: 256,
-    model: 2 * 1024,
-    provider: 256
-  })
-});
 const ACTIONS = new Set([
   'saveComment', 'saveCommentGroup', 'deleteComment', 'updateNote', 'updateCategory', 'addCategory',
   'renameCategory', 'deleteCategory', 'reorderCategories', 'saveSummary', 'deleteSummary', 'importData',
@@ -61,17 +43,9 @@ const ACTIONS = new Set([
 ]);
 
 const clone = value => structuredClone(value);
-const utf8Bytes = value => new TextEncoder().encode(value).byteLength;
 
-function requireUtf8Boundary(value, label, maximum) {
-  if (utf8Bytes(value) > maximum) throw new Error(`${label}不能超过 ${maximum} 字节`);
-}
-
-function requireRecordBudget(value, label) {
-  const bytes = utf8Bytes(JSON.stringify(value));
-  if (bytes > SYNC_INPUT_LIMITS.recordDataBytes) {
-    throw new Error(`${label}记录过大，不能超过 ${SYNC_INPUT_LIMITS.recordDataBytes} 字节`);
-  }
+function recordEnvelope(data) {
+  return { data, revision: 0, deleted: false, conflicts: [] };
 }
 
 function isPlainObject(value) {
@@ -120,7 +94,7 @@ function validateSummary(value, label = '总结') {
       requireUtf8Boundary(value[field], `总结字段 ${field}`, SYNC_INPUT_LIMITS.summaryStringBytes[field]);
     }
   }
-  requireRecordBudget(value, '总结');
+  requireRecordBudget(recordEnvelope(value), '总结');
 }
 
 function setOwn(target, key, value) {
@@ -219,7 +193,7 @@ function commentPatch(comment, categoryId, extra = {}) {
   if (Object.hasOwn(patch, 'text')) requireText(patch.text, '评论正文');
   if (Object.hasOwn(patch, 'note')) requireText(patch.note, '笔记');
   const result = { ...patch, ...extra, categoryId, savedAt: patch.savedAt ?? Date.now() };
-  requireRecordBudget(result, '评论');
+  requireRecordBudget(recordEnvelope(result), '评论');
   return result;
 }
 
@@ -239,10 +213,6 @@ function replaceCurrent(state, workspace) {
 }
 
 function queue(state, collection, recordId, patch, options = {}) {
-  if (!options.deleted && ['comments', 'summaries'].includes(collection)) {
-    const current = visibleRecords(currentWorkspace(state))[collection]?.[recordId];
-    requireRecordBudget({ ...(current?.data || {}), ...patch }, collection === 'comments' ? '评论' : '总结');
-  }
   const next = enqueueOperation(currentWorkspace(state), collection, recordId, patch, options);
   replaceCurrent(state, state.activeAccountUid === null ? materialize(next) : next);
 }
@@ -446,7 +416,7 @@ export async function mutate(state, message) {
         if (typeof metadata[field] === 'string') patch[field] = metadata[field];
       }
       requireUtf8Boundary(content, '总结', SYNC_INPUT_LIMITS.summaryStringBytes.content);
-      requireRecordBudget(patch, '总结');
+      requireRecordBudget(recordEnvelope(patch), '总结');
       queue(state, 'summaries', category.id, patch, { restore: visibleRecords(workspace).summaries[category.id]?.deleted === true });
       return;
     }

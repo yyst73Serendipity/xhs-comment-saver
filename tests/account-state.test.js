@@ -266,3 +266,31 @@ test('重复收藏活跃评论直接返回标识且不覆盖历史字段或增�
   assert.equal(saved.category, '学习');
   assert.equal(saved.savedAt, 10);
 });
+
+test('导入两边单独合法但合并后超预算时保持账号状态不变', async () => {
+  const state = await createState([], ['未分类'], {});
+  activateAccount(state, { uid: 'a' });
+  await mutate(state, {
+    action: 'saveComment',
+    data: {
+      commentId: 'combined-budget',
+      text: 't'.repeat(100_000),
+      note: 'n'.repeat(100_000),
+      author: 'a'.repeat(8_000),
+      postTitle: 'p'.repeat(32_000),
+      key: 'k'.repeat(16_000),
+      images: Array.from({ length: 100 }, (_, index) => `https://img.example/${index}/${'x'.repeat(2_500)}`)
+    }
+  });
+  const before = JSON.stringify(currentWorkspace(state));
+
+  await assert.rejects(() => mutate(state, {
+    action: 'importData',
+    data: {
+      comments: [{ commentId: 'combined-budget', note: '字'.repeat(100_000) }],
+      categories: ['未分类'],
+      summaries: {}
+    }
+  }), /记录过大/);
+  assert.equal(JSON.stringify(currentWorkspace(state)), before);
+});

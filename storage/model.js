@@ -1,6 +1,8 @@
 /**
  * 评论、分类和总结的版本化同步模型，负责迁移、冲突合并与旧界面投影。
  */
+import { requireRecordBudget } from './sync-limits.js';
+
 export const COLLECTIONS = ['comments', 'categories', 'summaries', 'settings'];
 export const MAX_CONFLICT_TEXT_LENGTH = 100_000;
 export const MAX_CONFLICTS = 5;
@@ -36,10 +38,16 @@ function safeData(source = {}) {
 
 function normalizeRecord(record) {
   if (!record || typeof record !== 'object') return newRecord({});
-  return { ...record, data: safeData(record.data), conflicts: clone(record.conflicts || []) };
+  const result = { ...record, data: safeData(record.data), conflicts: clone(record.conflicts || []) };
+  requireRecordBudget(result, '同步');
+  return result;
 }
 
-const newRecord = data => ({ data: safeData(data), revision: 0, deleted: false, conflicts: [] });
+const newRecord = data => {
+  const result = { data: safeData(data), revision: 0, deleted: false, conflicts: [] };
+  requireRecordBudget(result, '同步');
+  return result;
+};
 
 function safeRecordMap(source = {}) {
   const target = Object.create(null);
@@ -315,12 +323,14 @@ function applyVisibleOperation(previous, operation) {
     : previous.conflicts;
   const data = safeData(previous.data);
   for (const [field, value] of Object.entries(operation.patch || {})) setOwn(data, field, clone(value));
-  return {
+  const result = {
     ...previous,
     data,
     deleted: operation.deleted === true ? true : operation.restore ? false : previous.deleted,
     conflicts: normalizeConflicts([...unresolved, ...(operation.conflicts || [])], data)
   };
+  requireRecordBudget(result, COLLECTION_LABELS.get(operation.collection));
+  return result;
 }
 
 function orderedCategories(records) {
@@ -398,6 +408,9 @@ function createOperation(current, collection, recordId, patch, options = {}) {
     for (const [field, value] of Object.entries(patch)) setOwn(data, field, clone(value));
     operation.conflicts = normalizeConflicts(options.conflicts, data);
   }
+  // 同时验证本地可见结果和最终云端合并结果；后者可能新增并发冲突。
+  applyVisibleOperation(current || newRecord({}), operation);
+  mergeOperation(current, operation);
   return operation;
 }
 
@@ -460,6 +473,7 @@ export function mergeOperation(record, operation) {
     setOwn(result.data, field, clone(localValue));
   }
   result.conflicts = normalizeConflicts([...result.conflicts, ...(operation.conflicts || [])], result.data);
+  requireRecordBudget(result, COLLECTION_LABELS.get(operation.collection));
   return result;
 }
 

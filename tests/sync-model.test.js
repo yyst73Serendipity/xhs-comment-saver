@@ -431,16 +431,21 @@ test('缺失 summary content 不产生清空冲突而明确空字符串会产生
 });
 
 test('冲突文本截断到十万字符且最多保留五个版本', () => {
-  let remote = record({ note: '云端' }, { revision: 2 });
+  let remote = model.mergeOperation(record({ note: '云端' }, { revision: 2 }), {
+    id: 'oversized', collection: 'comments', recordId: 'c', baseRevision: 1,
+    patch: { note: `0${'a'.repeat(100_010)}` }, baseData: { note: '旧值' }
+  });
+  assert.equal(remote.conflicts[0].local.length, 100_000);
+
   for (let index = 0; index < 7; index++) {
     remote = model.mergeOperation(remote, {
       id: `op-${index}`, collection: 'comments', recordId: 'c', baseRevision: 1,
-      patch: { note: `${index}${'字'.repeat(100_010)}` }, baseData: { note: '旧值' }
+      patch: { note: `${index}冲突` }, baseData: { note: '旧值' }
     });
   }
 
   assert.equal(remote.conflicts.length, 5);
-  assert.equal(remote.conflicts.at(-1).local.length, 100_000);
+  assert.equal(remote.conflicts.at(-1).local, '6冲突');
 });
 
 test('操作入口拒绝超过十万字符的笔记和总结', () => {
@@ -668,7 +673,7 @@ test('导入操作携带的冲突仍受数量与文本边界限制', () => {
   const conflicts = Array.from({ length: 7 }, (_, index) => ({
     id: `legacy-${index}`,
     field: 'note',
-    local: `${index}${'字'.repeat(100_010)}`
+    local: `${index}旧笔记`
   }));
   const workspace = model.enqueueOperation(
     model.emptyWorkspace(),
@@ -681,7 +686,7 @@ test('导入操作携带的冲突仍受数量与文本边界限制', () => {
   const operation = workspace.pending[0];
   const record = model.mergeOperation(undefined, operation);
   assert.equal(record.conflicts.length, 5);
-  assert.equal(record.conflicts.at(-1).local.length, 100_000);
+  assert.equal(record.conflicts.at(-1).local, '6旧笔记');
 });
 
 test('访客大批量迁移只克隆一次完整工作区并线性追加操作', async () => {
@@ -709,4 +714,45 @@ test('访客大批量迁移只克隆一次完整工作区并线性追加操作',
   assert.equal(merged.pending.filter(item => item.collection === 'comments').length, 2_000);
   assert.equal(Object.keys(account.remote.comments).length, 0);
   assert.equal(performance.now() - startedAt < 5_000, true);
+});
+
+test('访客与账号记录单独合法但合并冲突后超预算时拒绝整次迁移', async () => {
+  const account = await model.migrateLegacy([{
+    commentId: 'combined-budget',
+    text: 't'.repeat(100_000),
+    note: 'n'.repeat(100_000),
+    author: 'a'.repeat(8_000),
+    postTitle: 'p'.repeat(32_000),
+    key: 'k'.repeat(16_000),
+    images: Array.from({ length: 100 }, (_, index) => `https://img.example/${index}/${'x'.repeat(2_500)}`)
+  }], ['未分类'], {});
+  const guest = await model.migrateLegacy([
+    { commentId: 'combined-budget', note: '字'.repeat(100_000) }
+  ], ['未分类'], {});
+  const before = JSON.stringify(account);
+
+  assert.throws(() => model.mergeGuest(guest, account), /记录过大/);
+  assert.equal(JSON.stringify(account), before);
+});
+
+test('完整记录预算同时计算数据、多个冲突和记录包装字段', () => {
+  const largeData = {
+    commentId: 'conflict-budget',
+    text: 't'.repeat(100_000),
+    note: 'n'.repeat(100_000),
+    author: 'a'.repeat(8_000),
+    postTitle: 'p'.repeat(32_000),
+    key: 'k'.repeat(16_000),
+    images: Array.from({ length: 100 }, (_, index) => `https://img.example/${index}/${'x'.repeat(2_500)}`)
+  };
+  const conflicts = Array.from({ length: 3 }, (_, index) => ({
+    id: `conflict-${index}`,
+    field: 'note',
+    local: `${index}${'c'.repeat(99_999)}`
+  }));
+
+  assert.throws(
+    () => model.enqueueOperation(model.emptyWorkspace(), 'comments', 'comment-conflict-budget', largeData, { conflicts }),
+    /记录过大/
+  );
 });
