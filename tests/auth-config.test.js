@@ -54,6 +54,21 @@ test('外部错误转换为明确的中文提示', () => {
   );
 });
 
+test('未知认证异常不会把英文原文显示给用户', () => {
+  assert.equal(
+    guard.friendlyAuthError?.({ code: 'auth/invalid-credential', message: 'The supplied credential is malformed.' }),
+    'Google 登录凭据无效，请重新登录'
+  );
+  assert.equal(
+    guard.friendlyAuthError?.({ message: 'Only a single offscreen document may be created.' }),
+    'Google 登录暂时失败，请稍后重试'
+  );
+  assert.equal(
+    guard.friendlyAuthError?.({ message: '请先配置 Firebase，当前仍可使用本地评论收藏' }),
+    '请先配置 Firebase，当前仍可使用本地评论收藏'
+  );
+});
+
 test('认证桥拒绝其他扩展来源', () => {
   const now = Date.now();
   assert.equal(guard.acceptAuthMessage?.({

@@ -9,7 +9,7 @@ import {
   bindAuthState,
   createAuthDispatcher
 } from '../auth/auth-service.js';
-import { friendlyError } from '../auth/auth-guard.js';
+import { friendlyAuthError } from '../auth/auth-guard.js';
 
 const store = new LocalStore();
 const dispatchLocal = createLocalDispatcher(store);
@@ -47,7 +47,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: true, data });
     }).catch(error => {
       console.error(`[评论收藏] ${message.action} 操作失败:`, error?.code || error?.name || 'unknown');
-      sendResponse({ success: false, error: friendlyError(error) });
+      sendResponse({ success: false, error: friendlyAuthError(error) });
     });
     return true;
   }

@@ -48,3 +48,13 @@ export function friendlyError(error) {
   if (error?.code === 'resource-exhausted') return '云端免费配额暂时不足，本地修改已保留';
   return error?.message || '云同步暂时不可用，本地修改已保留';
 }
+
+/** 将认证与浏览器边界错误转换为中文，避免向界面透传英文异常原文。 */
+export function friendlyAuthError(error) {
+  if (error?.code === 'auth/network-request-failed') return '网络连接失败，请稍后重新登录';
+  if (error?.code === 'auth/popup-closed-by-user') return 'Google 登录已取消';
+  if (error?.code === 'auth/invalid-credential') return 'Google 登录凭据无效，请重新登录';
+  const message = typeof error?.message === 'string' ? error.message.trim() : '';
+  if (/[㐀-鿿]/u.test(message)) return message;
+  return 'Google 登录暂时失败，请稍后重试';
+}
