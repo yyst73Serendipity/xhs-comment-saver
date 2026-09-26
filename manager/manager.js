@@ -1965,7 +1965,8 @@ async function callLLMApi(prompt) {
   const provider = API_PROVIDERS[cfg.provider];
   if (!provider) throw new Error('未知的 provider: ' + cfg.provider);
 
-  const baseUrl = cfg.baseUrl;
+  // 即使本机存储被手工篡改，请求前仍再次限制为 Manifest 已授权来源。
+  const baseUrl = globalThis.XHS_API_CONFIG_CORE.validateProviderUrl(cfg.provider, cfg.baseUrl);
   const model = cfg.model;
 
   const resp = await fetch(baseUrl, {
@@ -3169,75 +3170,16 @@ function renderDashboardTrend() {
 
 /* ===== 配置加载 ===== */
 
-const API_CONFIG_STORAGE_KEY = 'xhs_api_config';
-
-/** 将旧版 .env 与 JSON 配置迁移到仅限本机的扩展存储。 */
-async function migrateLegacyApiConfig() {
-  try {
-    const envResp = await fetch('../.env');
-    if (!envResp.ok) return null;
-    const envText = await envResp.text();
-    const envVars = {};
-    envText.split('\n').forEach(line => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) return;
-      const eqIdx = trimmed.indexOf('=');
-      if (eqIdx === -1) return;
-      envVars[trimmed.slice(0, eqIdx).trim()] = trimmed.slice(eqIdx + 1).trim();
-    });
-
-    let legacy = null;
-    let jsonResp = await fetch('apiconfig.local.json');
-    if (!jsonResp.ok) jsonResp = await fetch('apiconfig.json');
-    if (jsonResp.ok) legacy = await jsonResp.json();
-
-    // Git 更新可能已移除旧 JSON；此时根据旧环境变量恢复常用服务商。
-    const legacyKeyRefs = {
-      anthropic: 'ANTHROPIC_API_KEY',
-      openai: 'OPENAI_API_KEY',
-      minimax: 'MINIMAX_API_KEY',
-      deepseek: 'DEEPSEEK_API_KEY'
-    };
-    const provider = legacy?.activeProvider
-      || Object.keys(legacyKeyRefs).find(name => envVars[legacyKeyRefs[name]]);
-    const providerConfig = legacy?.providers?.[provider] || API_PROVIDER_DEFAULTS[provider];
-    const apiKeyRef = legacy?.providers?.[provider]?.apiKeyRef || legacyKeyRefs[provider];
-    const apiKey = envVars[apiKeyRef] || '';
-    if (!API_PROVIDERS[provider] || !providerConfig || !apiKey) return null;
-
-    const migrated = {
-      activeProvider: provider,
-      providers: {
-        [provider]: {
-          apiKey,
-          baseUrl: providerConfig.baseUrl,
-          model: providerConfig.model
-        }
-      }
-    };
-    await chrome.storage.local.set({ [API_CONFIG_STORAGE_KEY]: migrated });
-    return migrated;
-  } catch (error) {
-    return null;
-  }
-}
-
 /** 解析存储配置并更新当前页面的运行时配置。 */
 function applyApiConfig(value) {
-  const provider = value?.activeProvider;
-  const saved = value?.providers?.[provider];
-  const defaults = API_PROVIDER_DEFAULTS[provider];
-  if (!API_PROVIDERS[provider] || !saved || !defaults) {
+  try {
+    window.__apiConfig = globalThis.XHS_API_CONFIG_CORE.normalizeApiConfig(value);
+  } catch (error) {
+    console.warn('API 配置被拒绝: ' + error.message);
     window.__apiConfig = null;
     return false;
   }
-  window.__apiConfig = {
-    provider,
-    apiKey: saved.apiKey || '',
-    baseUrl: saved.baseUrl || defaults.baseUrl,
-    model: saved.model || defaults.model
-  };
-  return !!window.__apiConfig.apiKey;
+  return !!window.__apiConfig?.apiKey;
 }
 
 /** 在管理页收集本机 AI 配置，密钥只写入 chrome.storage.local。 */
@@ -3263,15 +3205,11 @@ async function configureApi() {
 
   const baseUrl = prompt('API 地址', window.__apiConfig?.provider === normalizedProvider ? window.__apiConfig.baseUrl : defaults.baseUrl);
   if (baseUrl === null) return false;
-  let parsedUrl;
+  let validatedUrl;
   try {
-    parsedUrl = new URL(baseUrl.trim());
-  } catch {
-    alert('API 地址格式无效');
-    return false;
-  }
-  if (parsedUrl.protocol !== 'https:') {
-    alert('API 地址必须使用 HTTPS');
+    validatedUrl = globalThis.XHS_API_CONFIG_CORE.validateProviderUrl(normalizedProvider, baseUrl.trim());
+  } catch (error) {
+    alert(error.message);
     return false;
   }
 
@@ -3287,12 +3225,12 @@ async function configureApi() {
     providers: {
       [normalizedProvider]: {
         apiKey,
-        baseUrl: parsedUrl.href,
+        baseUrl: validatedUrl,
         model: model.trim()
       }
     }
   };
-  await chrome.storage.local.set({ [API_CONFIG_STORAGE_KEY]: value });
+  await chrome.storage.local.set({ [globalThis.XHS_API_CONFIG_STORE.STORAGE_KEY]: value });
   applyApiConfig(value);
   showToast('AI 配置已保存在本机');
   return true;
@@ -3301,9 +3239,12 @@ async function configureApi() {
 /** 从本机扩展存储加载配置，首次升级时兼容迁移旧配置。 */
 async function loadApiConfig() {
   try {
-    const stored = await chrome.storage.local.get(API_CONFIG_STORAGE_KEY);
-    const value = stored[API_CONFIG_STORAGE_KEY] || await migrateLegacyApiConfig();
-    applyApiConfig(value);
+    const result = await globalThis.XHS_API_CONFIG_STORE.readApiConfig({
+      storage: chrome.storage.local,
+      allowLegacy: document.body.dataset.packagedBuild !== 'true'
+    });
+    applyApiConfig(result.value);
+    if (result.migrated) showToast('旧版 AI 配置已迁移到本机存储');
   } catch (e) {
     console.warn('API 配置加载失败: ' + e.message);
     window.__apiConfig = null;

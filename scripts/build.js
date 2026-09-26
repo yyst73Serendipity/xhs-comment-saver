@@ -89,6 +89,8 @@ await mkdir(hostingOutput, { recursive: true });
 const publicFiles = [
   'content/content.css',
   'content/content.js',
+  'manager/api-config-core.js',
+  'manager/api-config-store.js',
   'manager/apiconfig.js',
   'manager/manager.css',
   'manager/manager.html',
@@ -99,6 +101,12 @@ for (const file of publicFiles) {
   await mkdir(dirname(target), { recursive: true });
   await cp(file, target);
 }
+
+// 构建版明确关闭旧文件迁移，只从同一扩展 ID 的本机存储读取或让用户重新输入。
+const builtManagerHtmlPath = `${extensionOutput}/manager/manager.html`;
+const builtManagerHtml = (await readFile(builtManagerHtmlPath, 'utf8'))
+  .replace('<body class="app-body">', '<body class="app-body" data-packaged-build="true">');
+await writeFile(builtManagerHtmlPath, builtManagerHtml);
 
 // 静态图片允许递归复制，但排除系统隐藏文件。
 await cp('assets', `${extensionOutput}/assets`, {

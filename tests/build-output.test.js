@@ -46,11 +46,16 @@ test('未配置 Firebase 时构建安全且 AI 配置入口可用', async () => 
 
     const builtManager = await readFile(`${outputDirectory}/extension/manager/manager.js`, 'utf8');
     const builtApiConfig = await readFile(`${outputDirectory}/extension/manager/apiconfig.js`, 'utf8');
+    const builtApiCore = await readFile(`${outputDirectory}/extension/manager/api-config-core.js`, 'utf8');
+    const builtApiStore = await readFile(`${outputDirectory}/extension/manager/api-config-store.js`, 'utf8');
     const builtManagerHtml = await readFile(`${outputDirectory}/extension/manager/manager.html`, 'utf8');
-    assert.match(builtManager, /xhs_api_config/);
     assert.match(builtManager, /configureApi/);
     assert.match(builtApiConfig, /API_PROVIDER_DEFAULTS/);
+    assert.match(builtApiCore, /validateProviderUrl/);
+    assert.match(builtApiStore, /xhs_api_config/);
+    assert.match(builtApiStore, /readApiConfig/);
     assert.match(builtManagerHtml, /id="btn-api-config"/);
+    assert.match(builtManagerHtml, /data-packaged-build="true"/);
   } finally {
     await rm(outputDirectory, { recursive: true, force: true });
   }

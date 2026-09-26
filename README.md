@@ -79,10 +79,13 @@ xhs-comment-saver/
 │   ├── manager.html              # 三栏布局页面结构
 │   ├── manager.css               # 视觉样式（v2 浅暖色 + 成长视图 + 仪表盘卡片）
 │   ├── manager.js                # 分类筛选、搜索高亮、笔记、AI 总结、四视图成长分析
+│   ├── api-config-core.js        # AI 服务商默认值与官方来源校验
+│   ├── api-config-store.js       # AI 本机配置读取和旧版配置迁移
 │   ├── apiconfig.js              # LLM API 提供商预设（Anthropic / OpenAI / MiniMax / DeepSeek）
 │   └── apiconfig.example.json    # 旧版本机配置迁移示例（不含密钥）
 ├── tests/                        # 测试文件
 │   ├── auth-config.test.js       # Firebase 配置和 Manifest 权限测试
+│   ├── api-config.test.js        # AI 配置迁移和 API 来源边界测试
 │   ├── build-output.test.js      # 构建产物、固定 ID 与敏感文件边界测试
 │   └── storage.test.html         # 存储操作单元测试
 
@@ -111,11 +114,13 @@ xhs-comment-saver/
 ### 配置 AI 总结
 
 1. 打开管理页，点击顶部「AI 配置」
-2. 依次填写服务商、API Key、HTTPS API 地址和模型名称
+2. 依次填写服务商、API Key、该服务商官方 API 地址和模型名称；扩展会拒绝 Manifest 未授权的自建域名
 3. 配置仅写入当前浏览器的 `chrome.storage.local`，不会进入 Git、构建产物或 Firebase
 4. 选择具体分类后点击 🤖 即可生成 AI 总结
 
-从旧版源码直接升级时，扩展会尝试读取一次原有 `.env` 与 `manager/apiconfig.json`（或 `manager/apiconfig.local.json`），成功后迁移到本机扩展存储。确认迁移完成后可以删除旧文件。构建脚本采用公开文件白名单，不会复制这些本机配置。
+从旧版源码升级时，必须在切换到 `dist/extension` 前完成一次迁移：先让 Chrome 继续加载项目源码根目录，更新代码并重新加载扩展，然后打开管理页一次；看到“旧版 AI 配置已迁移到本机存储”提示后，再运行 `npm run build` 并切换到 `dist/extension`。源码版与构建版使用同一固定扩展 ID，构建版会从该 ID 对应的 `chrome.storage.local` 读取迁移结果。
+
+构建产物不会包含或直接读取 `.env`、`manager/apiconfig.json`、`manager/apiconfig.local.json`。如果没有看到迁移成功提示，请在构建版管理页点击顶部「AI 配置」重新输入；不要把密钥复制进项目文件。
 
 ### 运行测试
 
