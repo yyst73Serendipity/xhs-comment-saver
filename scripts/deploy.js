@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isOwnerConfigured } from '../auth/auth-guard.js';
+import { isConfigured, isOwnerConfigured } from '../auth/auth-guard.js';
 
 function requireProjectId(value) {
   if (typeof value !== 'string' || !/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(value)) {
@@ -17,6 +17,11 @@ function requireProjectId(value) {
 /** 使用已校验项目 ID 构造不会经过 Shell 展开的 Firebase CLI 参数。 */
 export function firebaseCliArguments(projectId) {
   return ['deploy', '--project', requireProjectId(projectId), '--only', 'firestore:rules,hosting'];
+}
+
+/** 首次绑定所有者前只部署登录桥，不触碰 Firestore Rules。 */
+export function firebaseHostingArguments(projectId) {
+  return ['deploy', '--project', requireProjectId(projectId), '--only', 'hosting'];
 }
 
 /** 固定构建使用的配置和输出目录，避免继承环境变量混用另一个项目。 */
@@ -48,8 +53,27 @@ export async function deploy() {
   execFileSync(process.execPath, [cliPath, ...args], { cwd: 'dist', stdio: 'inherit' });
 }
 
+/** 使用基础 Firebase 配置部署 Hosting，供首次 Google 登录取得 ownerUid。 */
+export async function deployHosting() {
+  const configPath = resolve('config/firebase.local.json');
+  const config = JSON.parse(await readFile(configPath, 'utf8'));
+  const projectId = requireProjectId(config.projectId);
+  if (!isConfigured(config)) throw new Error('部署登录页前必须填写完整 Firebase Web 配置');
+
+  execFileSync(process.execPath, ['scripts/build.js'], {
+    stdio: 'inherit',
+    env: buildEnvironment(process.env, configPath)
+  });
+  const cliPath = fileURLToPath(new URL('../node_modules/firebase-tools/lib/bin/firebase.js', import.meta.url));
+  execFileSync(process.execPath, [cliPath, ...firebaseHostingArguments(projectId)], {
+    cwd: 'dist',
+    stdio: 'inherit'
+  });
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  deploy().catch(error => {
+  const operation = process.argv.includes('--hosting-only') ? deployHosting() : deploy();
+  operation.catch(error => {
     console.error(error?.message || error);
     process.exitCode = 1;
   });

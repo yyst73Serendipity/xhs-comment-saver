@@ -7,6 +7,14 @@ import { readFile } from 'node:fs/promises';
 
 const guard = await import('../auth/auth-guard.js').catch(() => ({}));
 
+test('Firebase 示例保留首次登录所需字段且默认不伪造所有者', async () => {
+  const example = JSON.parse(await readFile('config/firebase.example.json', 'utf8'));
+  assert.equal(example.ownerUid, '');
+  assert.equal(typeof example.messagingSenderId, 'string');
+  assert.equal(typeof example.storageBucket, 'string');
+  assert.equal(guard.isOwnerConfigured(example), false);
+});
+
 test('完整 Firebase 配置可启用登录准备', () => {
   assert.equal(typeof guard.isConfigured, 'function');
   assert.equal(guard.isConfigured({

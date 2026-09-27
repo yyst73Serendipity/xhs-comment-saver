@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CloudStore } from '../sync/cloud-store.js';
-import { buildEnvironment, firebaseCliArguments } from '../scripts/deploy.js';
+import { buildEnvironment, firebaseCliArguments, firebaseHostingArguments } from '../scripts/deploy.js';
 
 function fakeApi({ receipt, target, rows = [] } = {}) {
   const events = [];
@@ -122,6 +122,9 @@ test('部署命令使用经过校验的参数数组', () => {
     'deploy', '--project', 'xhs-owner-123', '--only', 'firestore:rules,hosting'
   ]);
   assert.throws(() => firebaseCliArguments('project; rm -rf data'), /projectId/);
+  assert.deepEqual(firebaseHostingArguments('xhs-owner-123'), [
+    'deploy', '--project', 'xhs-owner-123', '--only', 'hosting'
+  ]);
 });
 
 test('部署构建强制使用刚校验的配置并清除外部输出目录', () => {

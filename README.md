@@ -96,6 +96,8 @@ xhs-comment-saver/
 ├── config/
 │   ├── firebase-config.js        # 构建期 Firebase 公共配置入口
 │   └── firebase.example.json     # Firebase 本机配置示例
+├── docs/
+│   └── firebase-setup.md         # Firebase 控制台、首次 UID 与部署流程
 ├── scripts/
 │   ├── build.js                  # 生成可加载扩展并保留固定扩展 ID
 │   └── deploy.js                 # 校验项目与所有者后确定性部署
@@ -127,7 +129,7 @@ xhs-comment-saver/
 │   ├── manager.js                # 分类筛选、搜索高亮、笔记、AI 总结、四视图成长分析
 │   ├── cloud-panel.css           # Google 账号、同步状态与冲突弹窗样式
 │   ├── cloud-panel.js            # 登录、同步、迁移备份与冲突处理交互
-│   ├── summary-store.js           # 分类总结的统一后台保存和删除适配
+│   ├── summary-store.js          # 分类总结的统一后台保存和删除适配
 │   ├── api-config-core.js        # AI 服务商默认值与官方来源校验
 │   ├── api-config-store.js       # AI 本机配置读取和旧版配置迁移
 │   ├── apiconfig.js              # LLM API 提供商预设（Anthropic / OpenAI / MiniMax / DeepSeek）
@@ -186,6 +188,8 @@ xhs-comment-saver/
 - **处理冲突**：顶部出现「处理冲突」时，逐项查看当前版本和另一台设备版本，并选择要保留的内容
 - **换电脑恢复**：在新电脑加载相同构建版扩展并登录同一 Google 账号，点击「立即同步」即可拉取该账号的评论、分类、笔记和总结
 
+完整的项目创建、Google 登录、Firestore、首次取得 UID 和部署步骤见 [Firebase 配置指南](docs/firebase-setup.md)。
+
 ### 配置 AI 总结
 
 1. 打开管理页，点击顶部「AI 配置」
@@ -209,7 +213,7 @@ xhs-comment-saver/
 
 构建会同时生成 `dist/extension` 和 `dist/hosting`。管理页已接入 `cloudLogin`、`cloudLogout`、`cloudStatus`、手动同步、迁移和缓存重拉入口；在部署 Hosting、启用 Google 登录并填写 `ownerUid` 前，扩展仍以本地模式运行。基础 Firebase 配置完成但尚未填写 `ownerUid` 时，管理页只开放登录、复制 UID 和退出登录；把复制的 UID 填入配置并重新构建后，才开放云数据按钮，其他 Google 账号随后会被扩展拒绝。
 
-配置完整的 `projectId` 与 `ownerUid` 后，可运行 `npm run deploy`。部署脚本会先重新构建并确认 `dist/firestore.rules` 不含所有者占位符，再通过项目内 Firebase CLI 参数数组部署 Firestore Rules 与 Hosting；不要把本机配置加入 Git。
+首次配置时保持 `ownerUid` 为空，运行 `npm run deploy:hosting` 只部署登录桥，加载 `dist/extension` 并登录后从管理页复制真实 UID。把 UID 写回配置后运行 `npm run deploy`；部署脚本会重新构建并确认 `dist/firestore.rules` 不含所有者占位符，再通过项目内 Firebase CLI 参数数组部署 Firestore Rules 与 Hosting。不要把本机配置加入 Git，详细顺序见 [Firebase 配置指南](docs/firebase-setup.md)。
 
 ## 技术栈
 
