@@ -51,6 +51,8 @@
 - 配置 `ownerUid` 后会拒绝其他 Google 账号；没有 Firebase 本机配置时不会初始化 SDK 或创建登录文档，扩展继续以纯本地模式工作
 - Firestore 只开放所有者路径下的评论、分类、总结、设置和幂等操作回执；业务文档由服务端时间排序，未知集合、额外顶层字段、客户端伪造时间和越界字段会被规则拒绝
 - 云端提交在单个事务中先读取操作回执和目标记录，再一次性写入合并记录与回执；重复操作不会二次修改数据，增量读取按服务器时间与文档 ID 稳定分页，每页最多 200 条
+- 同步引擎先拉取四类云快照再上传本地队列，单轮最多提交 100 项；每页快照和每条确认都会独立落盘，切换账号后旧请求不能写入新账号空间
+- 登录恢复、账号内业务修改、手动同步、迁移确认和定时闹钟都会触发续传；失败保留本地队列并从 30 秒开始指数退避，最长一小时
 
 **AI 总结**
 - 右侧面板上半部分，按分类存储 Markdown 总结笔记
@@ -93,7 +95,9 @@ xhs-comment-saver/
 │   ├── build.js                  # 生成可加载扩展并保留固定扩展 ID
 │   └── deploy.js                 # 校验项目与所有者后确定性部署
 ├── sync/
-│   └── cloud-store.js            # Firestore 幂等事务与增量分页读取
+│   ├── cloud-store.js            # Firestore 幂等事务与增量分页读取
+│   ├── snapshot.js               # 云端分页与本地快照合并
+│   └── sync-engine.js            # 有界同步、账号保护、迁移与重试调度
 ├── storage/
 │   ├── model.js                  # 评论、分类、总结的版本化模型与旧数据迁移
 │   ├── sync-limits.js            # 本地同步与 Firestore Rules 共用的数据边界
@@ -129,6 +133,7 @@ xhs-comment-saver/
 │   ├── account-state.test.js     # 账号隔离、导入排队和业务动作测试
 │   ├── storage-layout.test.js    # 串行原子写入与单副本边界测试
 │   ├── cloud-store.test.js       # 云端事务、路径和分页单元测试
+│   ├── sync-engine.test.js       # 快照、批次、账号保护和退避测试
 │   ├── integration/
 │   │   └── firestore-rules.test.js # Firestore Emulator 安全规则测试
 │   └── storage.test.html         # 存储操作单元测试
