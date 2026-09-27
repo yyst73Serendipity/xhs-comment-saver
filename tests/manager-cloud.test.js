@@ -33,6 +33,14 @@ test('管理页提供全部云同步控件且保留三栏主体', () => {
   assert.match(build, /manager\/summary-store\.js/);
 });
 
+test('配置帮助使用内置弹窗打开和关闭', () => {
+  for (const id of ['cloud-help', 'cloud-help-modal', 'cloud-help-close']) {
+    assert.match(cloudPanel, new RegExp(`byId\\('${id}'\\)`));
+  }
+  assert.match(cloudPanel, /help\.addEventListener\('click',[\s\S]*helpModal\.classList\.remove\(HIDDEN\)/);
+  assert.match(cloudPanel, /helpClose\.addEventListener\('click',[\s\S]*helpModal\.classList\.add\(HIDDEN\)/);
+});
+
 test('未填写 ownerUid 时仍可登录获取 UID但不能访问云数据', () => {
   assert.deepEqual(cloudApi.controlsFor({ configured: true, ownerConfigured: false, signedIn: false }), {
     login: true, copyUid: false, sync: false, migrate: false, conflicts: false, cache: false, logout: false

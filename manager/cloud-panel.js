@@ -60,6 +60,9 @@
     const conflictsButton = byId('cloud-conflicts');
     const cache = byId('cloud-cache');
     const logout = byId('cloud-logout');
+    const help = byId('cloud-help');
+    const helpModal = byId('cloud-help-modal');
+    const helpClose = byId('cloud-help-close');
     const migrationModal = byId('cloud-migration-modal');
     const migrationBody = byId('cloud-migration-body');
     const migrationCancel = byId('cloud-migration-cancel');
@@ -187,6 +190,8 @@
       const result = await run('clearCache', {}, '本机缓存已重新拉取');
       if (result) await reloadData();
     });
+    help.addEventListener('click', () => helpModal.classList.remove(HIDDEN));
+    helpClose.addEventListener('click', () => helpModal.classList.add(HIDDEN));
     migrate.addEventListener('click', openMigration);
     migrationCancel.addEventListener('click', closeMigration);
     migrationBackup.addEventListener('click', async () => {

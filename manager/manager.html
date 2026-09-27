@@ -15,37 +15,43 @@
   <div class="app">
     <!-- 顶部栏 -->
     <header class="header">
-      <div class="header-left">
-        <h1 class="header-title">宝藏仓库</h1>
-        <span class="header-count" id="total-count">空空如也</span>
+      <div class="header-primary">
+        <div class="header-left">
+          <h1 class="header-title">我的评论灵感簿</h1>
+          <span class="header-count" id="total-count">空空如也</span>
+        </div>
+        <section class="cloud-panel" id="cloud-panel" aria-label="Google 云同步">
+          <div class="cloud-identity">
+            <span class="cloud-avatar" aria-hidden="true">云</span>
+            <span class="cloud-copy">
+              <strong id="cloud-account">本地模式</strong>
+              <span id="cloud-status">正在读取同步状态…</span>
+            </span>
+          </div>
+          <div class="cloud-primary-actions">
+            <button id="cloud-login" type="button">使用 Google 登录</button>
+            <button id="cloud-copy-uid" type="button" class="hidden">复制 UID</button>
+            <button id="cloud-sync" type="button" class="hidden">立即同步</button>
+            <button class="btn-api-config" id="btn-api-config" title="配置本机 AI 服务">AI 配置</button>
+          </div>
+        </section>
       </div>
-      <section class="cloud-panel" id="cloud-panel" aria-label="Google 云同步">
-        <div class="cloud-identity">
-          <strong id="cloud-account">本地模式</strong>
-          <span id="cloud-status">正在读取同步状态…</span>
-        </div>
-        <div class="cloud-actions">
-          <button id="cloud-login" type="button">使用 Google 登录</button>
-          <button id="cloud-copy-uid" type="button" class="hidden">复制 UID</button>
-          <button id="cloud-sync" type="button" class="hidden">立即同步</button>
-          <button id="cloud-migrate" type="button" class="hidden">迁移本机数据</button>
-          <button id="cloud-conflicts" type="button" class="hidden">处理冲突</button>
-          <button id="cloud-cache" type="button" class="hidden">清除本机缓存</button>
-          <button id="cloud-logout" type="button" class="hidden">退出登录</button>
-        </div>
-      </section>
-      <div class="header-actions">
-        <button class="btn-api-config" id="btn-api-config" title="配置本机 AI 服务">AI 配置</button>
-        <button class="btn-export" id="btn-export" title="导出为 JSON 文件">导出</button>
+      <div class="header-utility" role="group" aria-label="数据与账号操作">
         <button class="btn-import" id="btn-import" title="从 JSON 文件导入">导入</button>
-        <button class="btn-clear" id="btn-clear" title="清空所有收藏数据">清空</button>
+        <button class="btn-export" id="btn-export" title="导出为 JSON 文件">导出</button>
+        <button id="cloud-migrate" type="button" class="hidden">迁移本机数据</button>
+        <button id="cloud-conflicts" type="button" class="hidden">处理冲突</button>
+        <button id="cloud-cache" type="button" class="hidden">清除本机缓存</button>
+        <button class="btn-clear" id="btn-clear" title="清空所有收藏数据">清空全部数据</button>
+        <button id="cloud-help" class="header-help" type="button" title="查看云同步配置帮助">配置帮助</button>
+        <button id="cloud-logout" type="button" class="hidden header-logout">退出登录</button>
         <input type="file" class="import-file" id="import-file" accept=".json" hidden>
       </div>
     </header>
 
-    <div class="main">
+    <div class="main workspace-shell">
       <!-- 左侧分类栏 -->
-      <aside class="sidebar">
+      <aside class="sidebar" data-ui-region="categories">
         <div class="sidebar-header">
           <span>分类</span>
           <button class="btn-add-cat" id="btn-add-cat" title="新建分类">+</button>
@@ -156,8 +162,26 @@
         </div>
       </div>
 
+      <!-- Google 云同步配置帮助 -->
+      <div class="modal-overlay hidden" id="cloud-help-modal" role="dialog" aria-modal="true" aria-labelledby="cloud-help-title">
+        <div class="modal-dialog cloud-dialog">
+          <div class="modal-title" id="cloud-help-title">Google 云同步使用说明</div>
+          <div class="modal-body cloud-help-body">
+            <p>登录同一个 Google 账号，即可在不同电脑和浏览器间同步评论、分类、私人笔记和 AI 总结。</p>
+            <ol>
+              <li>首次登录后，如有旧本机收藏，先使用“迁移本机数据”下载备份并确认迁移。</li>
+              <li>账号内新增、编辑、导入和删除会自动加入同步队列。</li>
+              <li>“清除本机缓存”只重新拉取当前账号数据，不会删除云端收藏。</li>
+            </ol>
+          </div>
+          <div class="modal-actions">
+            <button class="btn-modal-confirm" id="cloud-help-close" type="button">知道了</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 右侧评论列表 -->
-      <section class="content">
+      <section class="content" data-ui-region="comments">
         <!-- 搜索和操作栏 -->
         <div class="toolbar">
           <div class="search-wrap">
@@ -191,9 +215,9 @@
       </section>
 
       <!-- 右侧面板：AI 总结 + 思维导图 -->
-      <aside class="right-panel" id="right-panel">
+      <aside class="right-panel" id="right-panel" data-ui-region="insights">
         <!-- AI 总结区 -->
-        <div class="panel-section panel-summary" id="panel-summary">
+        <div class="panel-section panel-summary" id="panel-summary" data-ui-region="ai-summary">
           <div class="panel-section-header">
             <span class="panel-section-title">AI 总结</span>
             <div class="panel-summary-actions">
@@ -230,15 +254,15 @@
         </div>
 
         <!-- 成长视图区（关系图谱 / 河流图 / 网格图 / 仪表盘） -->
-        <div class="panel-section panel-graph" id="panel-graph">
+        <div class="panel-section panel-graph" id="panel-graph" data-ui-region="data-analysis">
           <div class="panel-section-header">
             <span class="panel-section-title" id="graph-view-title">关系图谱</span>
             <div class="panel-graph-actions">
               <div class="view-switch-group">
-                <button class="view-switch-btn" data-view="river" title="河流图">🌊</button>
-                <button class="view-switch-btn" data-view="grid" title="网格图">📊</button>
-                <button class="view-switch-btn" data-view="dashboard" title="仪表盘">📈</button>
-                <button class="view-switch-btn active" data-view="graph" title="关系图">🔗</button>
+                <button class="view-switch-btn" data-view="river" aria-label="河流图" title="河流图"><span aria-hidden="true">🌊</span><span>河流图</span></button>
+                <button class="view-switch-btn" data-view="grid" aria-label="网格图" title="网格图"><span aria-hidden="true">▦</span><span>网格图</span></button>
+                <button class="view-switch-btn" data-view="dashboard" aria-label="仪表盘" title="仪表盘"><span aria-hidden="true">▥</span><span>仪表盘</span></button>
+                <button class="view-switch-btn active" data-view="graph" aria-label="关系图" title="关系图"><span aria-hidden="true">⌘</span><span>关系图</span></button>
               </div>
             </div>
           </div>
