@@ -9,6 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>小红书评论收藏</title>
   <link rel="stylesheet" href="manager.css">
+  <link rel="stylesheet" href="cloud-panel.css">
 </head>
 <body class="app-body">
   <div class="app">
@@ -18,6 +19,21 @@
         <h1 class="header-title">宝藏仓库</h1>
         <span class="header-count" id="total-count">空空如也</span>
       </div>
+      <section class="cloud-panel" id="cloud-panel" aria-label="Google 云同步">
+        <div class="cloud-identity">
+          <strong id="cloud-account">本地模式</strong>
+          <span id="cloud-status">正在读取同步状态…</span>
+        </div>
+        <div class="cloud-actions">
+          <button id="cloud-login" type="button">使用 Google 登录</button>
+          <button id="cloud-copy-uid" type="button" class="hidden">复制 UID</button>
+          <button id="cloud-sync" type="button" class="hidden">立即同步</button>
+          <button id="cloud-migrate" type="button" class="hidden">迁移本机数据</button>
+          <button id="cloud-conflicts" type="button" class="hidden">处理冲突</button>
+          <button id="cloud-cache" type="button" class="hidden">清除本机缓存</button>
+          <button id="cloud-logout" type="button" class="hidden">退出登录</button>
+        </div>
+      </section>
       <div class="header-actions">
         <button class="btn-api-config" id="btn-api-config" title="配置本机 AI 服务">AI 配置</button>
         <button class="btn-export" id="btn-export" title="导出为 JSON 文件">导出</button>
@@ -106,6 +122,36 @@
           <div class="modal-actions">
             <button class="btn-modal-cancel" id="btn-preview-cancel">取消</button>
             <button class="btn-modal-confirm" id="btn-preview-confirm">确认导入</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 本机访客数据迁移确认 -->
+      <div class="modal-overlay hidden" id="cloud-migration-modal">
+        <div class="modal-dialog cloud-dialog">
+          <div class="modal-title">迁移本机收藏</div>
+          <div class="modal-body" id="cloud-migration-body"></div>
+          <p class="cloud-dialog-hint">请先下载一份 JSON 备份，再把本机数据加入当前 Google 账号的同步队列。</p>
+          <div class="modal-actions">
+            <button class="btn-modal-cancel" id="cloud-migration-cancel" type="button">取消</button>
+            <button class="btn-modal-cancel" id="cloud-backup" type="button">下载备份</button>
+            <button class="btn-modal-confirm" id="cloud-migration-confirm" type="button" disabled>确认迁移</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 私人笔记和总结冲突处理 -->
+      <div class="modal-overlay hidden" id="cloud-conflict-modal">
+        <div class="modal-dialog cloud-dialog">
+          <div class="modal-title" id="cloud-conflict-title">处理同步冲突</div>
+          <label class="cloud-conflict-label" for="cloud-conflict-current">当前版本</label>
+          <textarea id="cloud-conflict-current" class="cloud-conflict-text" readonly></textarea>
+          <label class="cloud-conflict-label" for="cloud-conflict-alternate">另一台设备的版本</label>
+          <textarea id="cloud-conflict-alternate" class="cloud-conflict-text" readonly></textarea>
+          <div class="modal-actions">
+            <button class="btn-modal-cancel" id="cloud-conflict-cancel" type="button">稍后处理</button>
+            <button class="btn-modal-confirm" id="cloud-use-alternate" type="button">使用另一版本</button>
+            <button class="btn-modal-confirm" id="cloud-use-current" type="button">保留当前版本</button>
           </div>
         </div>
       </div>
@@ -252,6 +298,8 @@
   <script src="api-config-core.js"></script>
   <script src="api-config-store.js"></script>
   <script src="apiconfig.js"></script>
+  <script src="cloud-panel.js"></script>
+  <script src="summary-store.js"></script>
   <script src="manager.js"></script>
 </body>
 </html>

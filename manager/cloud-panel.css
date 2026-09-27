@@ -1,0 +1,102 @@
+/**
+ * 管理页顶部 Google 云同步状态、迁移和冲突弹窗样式。
+ */
+.cloud-panel {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  color: var(--text-primary);
+}
+
+.cloud-identity {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.cloud-identity strong {
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-identity span {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cloud-identity span[data-state="error"] { color: var(--danger); }
+.cloud-identity span[data-state="synced"] { color: var(--safe); }
+
+.cloud-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.cloud-actions button {
+  border: 1px solid var(--border-card);
+  border-radius: 9px;
+  padding: 7px 10px;
+  background: #fff;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.cloud-actions button:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.cloud-actions button:disabled { cursor: wait; opacity: 0.55; }
+
+.cloud-dialog { max-width: 560px; }
+
+.cloud-dialog-hint {
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.cloud-conflict-label {
+  display: block;
+  margin: 12px 0 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cloud-conflict-text {
+  width: 100%;
+  min-height: 110px;
+  resize: vertical;
+  border: 1px solid var(--border-card);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  color: var(--text-primary);
+  font: inherit;
+  line-height: 1.6;
+}
+
+@media (max-width: 1100px) {
+  .header { align-items: flex-start; flex-wrap: wrap; }
+  .cloud-panel { order: 3; width: 100%; justify-content: space-between; }
+  .cloud-identity { align-items: flex-start; }
+}

@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { activateAccount, createState, currentWorkspace } from '../storage/account-state.js';
+import { activateAccount, createState, currentWorkspace, mutate } from '../storage/account-state.js';
 import { COLLECTIONS, emptyWorkspace, enqueueOperation, project } from '../storage/model.js';
 import { applyPage } from '../sync/snapshot.js';
 import {
@@ -308,6 +308,17 @@ test('迁移状态按当前账号保存且原始访客数据继续保留', async
   assert.equal(status.confirmed, false);
   assert.equal(JSON.stringify(state.guest), JSON.stringify(beforeGuest));
   assert.equal(currentWorkspace(state).pending.length, 0);
+});
+
+test('迁移备份读取原始访客工作区而不是当前账号工作区', async () => {
+  const state = await createState([{ commentId: 'legacy', text: '旧评论' }], ['未分类'], {});
+  activateAccount(state, { uid: 'owner', email: 'owner@example.com' });
+  await mutate(state, { action: 'saveComment', data: { commentId: 'account', text: '账号评论' } });
+  const dispatch = createSyncDispatcher({ store: new MemoryStore(state), engine: null });
+
+  const backup = await dispatch({ action: 'migrationBackup' });
+
+  assert.deepEqual(backup.comments.map(comment => comment.commentId), ['legacy']);
 });
 
 test('确认迁移只排队一次并在落盘后触发同步', async () => {

@@ -174,6 +174,20 @@ test('评论、分类、总结与冲突动作均映射到版本化模型', async
   assert.equal(visibleRecords(currentWorkspace(state)).comments[remainingId].data.note, '采用版本');
   assert.deepEqual(visibleRecords(currentWorkspace(state)).comments[remainingId].conflicts, []);
 
+  await mutate(state, { action: 'saveSummary', category: '未分类', content: '当前总结' });
+  const summaryRecords = visibleRecords(currentWorkspace(state));
+  summaryRecords.summaries.uncategorized.conflicts = [
+    { id: 'summary-conflict', field: 'content', local: '另一份总结' }
+  ];
+  currentWorkspace(state).remote.summaries.uncategorized = summaryRecords.summaries.uncategorized;
+  currentWorkspace(state).pending = [];
+  await mutate(state, {
+    action: 'resolveConflict', collection: 'summaries', category: '未分类',
+    conflictId: 'summary-conflict', field: 'content', value: '采用另一份总结'
+  });
+  assert.equal(visibleRecords(currentWorkspace(state)).summaries.uncategorized.data.content, '采用另一份总结');
+  assert.deepEqual(visibleRecords(currentWorkspace(state)).summaries.uncategorized.conflicts, []);
+
   await mutate(state, { action: 'clearAll' });
   assert.equal(project(currentWorkspace(state)).comments.length, 0);
   assert.deepEqual(project(currentWorkspace(state)).categories, ['未分类']);

@@ -474,7 +474,9 @@ export async function mutate(state, message) {
     case 'resolveConflict': {
       const collection = message.collection;
       if (!COLLECTIONS.includes(collection)) throw new Error('冲突集合无效');
-      const id = requireId(message.id ?? message.recordId);
+      const id = collection === 'summaries' && message.category
+        ? requireCategory(workspace, message.category).id
+        : requireId(message.id ?? message.recordId);
       const record = activeEntry(workspace, collection, id);
       if (!record) throw new Error('冲突记录不存在');
       const conflictIds = message.conflictIds ?? (message.conflictId ? [message.conflictId] : []);

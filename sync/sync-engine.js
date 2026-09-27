@@ -7,13 +7,16 @@ import {
   acknowledge,
   emptyWorkspace,
   mergeGuest,
-  migrationPreview
+  migrationPreview,
+  project
 } from '../storage/model.js';
 import { PAGE_SIZE } from './cloud-store.js';
 import { applyPage } from './snapshot.js';
 
 export const SYNC_ALARM = 'cloud-sync-next';
-export const SYNC_ACTIONS = new Set(['syncNow', 'clearCache', 'migrationPreview', 'confirmMigration']);
+export const SYNC_ACTIONS = new Set([
+  'syncNow', 'clearCache', 'migrationPreview', 'migrationBackup', 'confirmMigration'
+]);
 const INITIAL_RETRY_DELAY = 30_000;
 const MAX_RETRY_DELAY = 60 * 60 * 1_000;
 const MAX_UPLOADS_PER_RUN = 100;
@@ -241,6 +244,11 @@ export function createSyncDispatcher({ store, engine, logger = console }) {
     if (message.action === 'migrationPreview') {
       const state = await store.read();
       return migrationStatus(state);
+    }
+    if (message.action === 'migrationBackup') {
+      const state = await store.read();
+      activeAccount(state);
+      return project(state.guest);
     }
     if (!engine) throw new Error('请先完成 Firebase 和 ownerUid 配置，当前仍可使用本地评论收藏');
     if (message.action === 'syncNow') return engine.sync({ force: true });

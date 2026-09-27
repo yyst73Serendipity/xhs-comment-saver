@@ -16,6 +16,9 @@ let pendingDeleteCommentId = null; // 待删除的评论 ID
 let summaries = {};              // { [category]: { content, updatedAt, generatedBy } }
 let summaryEditMode = false;     // 是否编辑态
 let summaryGenerating = false;   // 是否正在 AI 生成
+let summaryEditingCategory = null; // 当前编辑器绑定的分类，避免切换后误写
+const summaryDrafts = globalThis.XHS_SUMMARY_STORE.createDraftStore(); // 保存失败的分类草稿
+let cloudController = null;      // 云同步面板控制器
 
 /* ========== 拓扑图相关状态 ========== */
 let currentGraphView = 'graph';   // 'river' | 'grid' | 'dashboard' | 'graph'
@@ -151,6 +154,26 @@ function dedupeComments(list) {
   return Array.from(seen.values());
 }
 
+/** 统一调用后台动作，并把后台错误转换为可直接展示的异常。 */
+async function sendAction(action, payload = {}) {
+  const response = await chrome.runtime.sendMessage({ action, ...payload });
+  if (!response?.success) throw new Error(response?.error || '后台暂时不可用，请重新加载扩展');
+  return response.data;
+}
+
+/** 重新读取当前访客或账号工作区，并刷新页面。 */
+async function reloadBusinessData() {
+  const [nextCategories, nextComments, nextSummaries] = await Promise.all([
+    sendAction('getCategories'),
+    sendAction('getComments'),
+    sendAction('getSummaries')
+  ]);
+  categories = nextCategories;
+  comments = dedupeComments(nextComments);
+  summaries = nextSummaries;
+  renderAll();
+}
+
 /**
  * 初始化：从 storage 加载数据
  */
@@ -159,40 +182,23 @@ async function init() {
   preloadTemplateImages();
 
   try {
-    const [catResp, commentResp] = await Promise.all([
-      chrome.runtime.sendMessage({ action: 'getCategories' }),
-      chrome.runtime.sendMessage({ action: 'getComments' })
-    ]);
-
-    if (catResp.success) {
-      categories = catResp.data;
-    }
-    if (commentResp.success) {
-      comments = commentResp.data;
-    }
-  } catch (err) {
-    // 直接读取 storage（background 可能未响应）
-    const result = await chrome.storage.local.get(['xhs_categories', 'xhs_comments']);
-    categories = result.xhs_categories || ['未分类', '好物', '避雷', '搞笑'];
-    comments = result.xhs_comments || [];
+    await reloadBusinessData();
+  } catch (error) {
+    categories = ['未分类'];
+    comments = [];
+    summaries = {};
+    showToast(error.message, 'error');
   }
-
-  // 去重并写回 storage（清理历史重复数据）
-  const deduped = dedupeComments(comments);
-  if (deduped.length !== comments.length) {
-    comments = deduped;
-    await chrome.storage.local.set({ xhs_comments: comments });
-  }
-
-  // 加载 AI 总结和 API 配置
-  try {
-    const configResult = await chrome.storage.local.get('xhs_summaries');
-    summaries = configResult.xhs_summaries || {};
-  } catch (e) { /* 忽略 */ }
 
   await loadApiConfig();
-
   renderAll();
+  cloudController = globalThis.XHS_CLOUD_PANEL.init({
+    sendAction,
+    createBackup: async () => downloadDataBackup(false, await sendAction('migrationBackup')),
+    reloadData: reloadBusinessData,
+    showToast
+  });
+  cloudController.setConflicts(comments, summaries);
 }
 
 /**
@@ -205,44 +211,21 @@ function renderAll() {
   updateEmptyState();
   updateRightPanel();
   updateStorageQuota();
+  cloudController?.setConflicts(comments, summaries);
 }
 
 /**
- * 更新存储配额条
- * 读取 storage.local 已用空间，按百分比分段变色：<80% 安全绿 / 80~95% 警告橙 / >95% 危险红
+ * 更新本地缓存工作副本大小；这里不是 Firebase 云端配额。
  */
 async function updateStorageQuota() {
   try {
     const bytesInUse = await chrome.storage.local.getBytesInUse(null);
-    // 动态读取当前浏览器 storage.local 实际配额（老版本 5MB / 新版本 10MB）
-    const quotaBytes = chrome.storage.local.QUOTA_BYTES || (10 * 1024 * 1024);
-    const quotaMb = quotaBytes / (1024 * 1024);
-    const percent = (bytesInUse / quotaBytes) * 100;
-
-    // 用量 <1MB 用 KB 显示，避免小数据量被四舍五入成 0.0 MB
-    let usedText;
-    if (bytesInUse < 1024 * 1024) {
-      usedText = (bytesInUse / 1024).toFixed(1) + ' KB';
-    } else {
-      usedText = (bytesInUse / (1024 * 1024)).toFixed(1) + ' MB';
-    }
-
-    // 进度条至少占 1% 宽度，让非空存储有视觉反馈
-    const fillPercent = bytesInUse > 0 ? Math.max(percent, 1) : 0;
-    storageQuotaFill.style.width = Math.min(fillPercent, 100) + '%';
-
-    // 分段档位判断
-    let level = 'safe';
-    let tip = '';
-    if (percent > 95) {
-      level = 'danger';
-      tip = ' — 空间即将耗尽，请尽快导出清理';
-    } else if (percent >= 80) {
-      level = 'warn';
-      tip = ' — 空间即将用尽，建议导出后清理';
-    }
-    storageQuotaBar.className = 'storage-quota-bar level-' + level;
-    storageQuotaText.textContent = `本地存储 ${usedText} / ${quotaMb} MB (${percent.toFixed(0)}%)` + tip;
+    const usedText = bytesInUse < 1024 * 1024
+      ? `${(bytesInUse / 1024).toFixed(1)} KB`
+      : `${(bytesInUse / (1024 * 1024)).toFixed(1)} MB`;
+    storageQuotaFill.style.width = bytesInUse > 0 ? '12%' : '0';
+    storageQuotaBar.className = 'storage-quota-bar level-safe';
+    storageQuotaText.textContent = `本地缓存工作副本 ${usedText} · 已启用扩展存储权限（不是 Firebase 云端配额）`;
   } catch (err) {
     // getBytesInUse 失败时静默处理，不影响主流程
   }
@@ -384,11 +367,20 @@ function createCategoryItem(name, count, showActions) {
  * 切换选中分类
  * @param {string} name - 分类名
  */
-function selectCategory(name) {
+async function selectCategory(name) {
+  if (summaryEditMode && summaryEditingCategory && !await flushAutoSave()) return;
+  autoSaveSummary.cancel();
+  summaryEditMode = false;
+  summaryEditingCategory = null;
   currentCategory = name;
   searchInput.value = '';
   searchKeyword = '';
   renderAll();
+  if (summaryDrafts.has(name)) {
+    enterSummaryEdit();
+    summaryAutosave.textContent = '上次内容尚未保存，请继续编辑后重试';
+    summaryAutosave.classList.remove('hidden');
+  }
 }
 
 /**
@@ -728,16 +720,16 @@ function createCommentCard(comment) {
       // 无笔记时保持编辑态可见，否则展开/收起关联评论后 textarea 消失
       return;
     }
-    comment.note = newNote;
-    noteView.textContent = newNote;
+    const previousNote = comment.note || '';
     try {
-      await chrome.runtime.sendMessage({ action: 'updateNote', id: comment.id, note: newNote });
-    } catch (err) {
-      const all = await chrome.storage.local.get('xhs_comments');
-      const list = all.xhs_comments || [];
-      const target = list.find(c => c.id === comment.id);
-      if (target) target.note = newNote;
-      await chrome.storage.local.set({ xhs_comments: list });
+      await sendAction('updateNote', { id: comment.id, note: newNote });
+      comment.note = newNote;
+      noteView.textContent = newNote;
+    } catch (error) {
+      noteEdit.value = previousNote;
+      noteView.textContent = previousNote;
+      showToast(error.message || '笔记保存失败', 'error');
+      return;
     }
     noteEdit.style.display = 'none';
     noteView.style.display = newNote ? 'block' : 'none';
@@ -870,35 +862,11 @@ function createCommentGroupCard(group) {
  */
 async function changeCommentCategory(id, newCategory) {
   try {
-    const response = await chrome.runtime.sendMessage({
-      action: 'updateCategory',
-      id,
-      category: newCategory
-    });
-    if (response.success) {
-      // 更新本地状态：同组评论一起改分类
-      const comment = comments.find(c => c.id === id);
-      if (comment) {
-        if (comment.groupId) {
-          comments.forEach(c => { if (c.groupId === comment.groupId) c.category = newCategory; });
-        } else {
-          comment.category = newCategory;
-        }
-      }
-      renderCategories();
-    }
-  } catch (err) {
-    // 直接操作 storage
-    const comment = comments.find(c => c.id === id);
-    if (comment) {
-      if (comment.groupId) {
-        comments.forEach(c => { if (c.groupId === comment.groupId) c.category = newCategory; });
-      } else {
-        comment.category = newCategory;
-      }
-      await chrome.storage.local.set({ xhs_comments: comments });
-      renderCategories();
-    }
+    await sendAction('updateCategory', { id, category: newCategory });
+    comments = await sendAction('getComments');
+    renderAll();
+  } catch (error) {
+    showToast(error.message || '分类修改失败', 'error');
   }
 }
 
@@ -921,18 +889,10 @@ async function confirmDeleteComment() {
   closeCommentDeleteModal();
 
   try {
-    const response = await chrome.runtime.sendMessage({
-      action: 'deleteComment',
-      id
-    });
-    if (response.success) {
-      comments = response.data;
-      renderAll();
-    }
-  } catch (err) {
-    comments = comments.filter(c => c.id !== id);
-    await chrome.storage.local.set({ xhs_comments: comments });
+    comments = await sendAction('deleteComment', { id });
     renderAll();
+  } catch (error) {
+    showToast(error.message || '评论删除失败', 'error');
   }
 }
 
@@ -990,41 +950,15 @@ async function confirmDeleteCategory() {
   if (!name) return;
   closeDeleteModal();
 
-  const fallbackCat = categories.find(c => c !== name) || '未分类';
-
   try {
-    const response = await chrome.runtime.sendMessage({
-      action: 'deleteCategory',
-      name
-    });
-    if (response.success) {
-      categories = response.data;
-      const commentResp = await chrome.runtime.sendMessage({ action: 'getComments' });
-      if (commentResp.success) {
-        comments = commentResp.data;
-      }
-      // 清理已删除分类的 AI 总结
-      delete summaries[name];
-      await saveSummariesToStorage();
-      if (currentCategory === name) {
-        currentCategory = '全部';
-      }
-      renderAll();
-    }
-  } catch (err) {
-    // 直接操作 storage
-    categories = categories.filter(c => c !== name);
-    comments = comments.map(c => c.category === name ? { ...c, category: fallbackCat } : c);
-    delete summaries[name];
-    await chrome.storage.local.set({
-      xhs_categories: categories,
-      xhs_comments: comments,
-      xhs_summaries: summaries
-    });
+    categories = await sendAction('deleteCategory', { name });
+    [comments, summaries] = await Promise.all([sendAction('getComments'), sendAction('getSummaries')]);
     if (currentCategory === name) {
       currentCategory = '全部';
     }
     renderAll();
+  } catch (error) {
+    showToast(error.message || '分类删除失败', 'error');
   }
 }
 
@@ -1088,56 +1022,15 @@ function cancelEditCategory(li) {
  */
 async function renameCategoryHandler(oldName, newName) {
   try {
-    const response = await chrome.runtime.sendMessage({
-      action: 'renameCategory',
-      oldName,
-      newName
-    });
-    if (response.success) {
-      categories = response.data;
-      // 重新加载评论
-      const commentResp = await chrome.runtime.sendMessage({ action: 'getComments' });
-      if (commentResp.success) {
-        comments = commentResp.data;
-      }
-      // 迁移 AI 总结
-      if (summaries[oldName]) {
-        summaries[newName] = summaries[oldName];
-        delete summaries[oldName];
-        await saveSummariesToStorage();
-      }
-      if (currentCategory === oldName) {
-        currentCategory = newName;
-      }
-      renderAll();
-    } else {
-      alert(response.error);
+    categories = await sendAction('renameCategory', { oldName, newName });
+    [comments, summaries] = await Promise.all([sendAction('getComments'), sendAction('getSummaries')]);
+    if (currentCategory === oldName) {
+      currentCategory = newName;
     }
-  } catch (err) {
-    // 直接操作 storage
-    if (categories.includes(newName)) {
-      alert('目标分类名已存在');
-      return;
-    }
-    const idx = categories.indexOf(oldName);
-    if (idx !== -1) {
-      categories[idx] = newName;
-      comments = comments.map(c => c.category === oldName ? { ...c, category: newName } : c);
-      // 迁移 AI 总结
-      if (summaries[oldName]) {
-        summaries[newName] = summaries[oldName];
-        delete summaries[oldName];
-      }
-      await chrome.storage.local.set({
-        xhs_categories: categories,
-        xhs_comments: comments,
-        xhs_summaries: summaries
-      });
-      if (currentCategory === oldName) {
-        currentCategory = newName;
-      }
-      renderAll();
-    }
+    renderAll();
+  } catch (error) {
+    showToast(error.message || '分类重命名失败', 'error');
+    throw error;
   }
 }
 
@@ -1149,31 +1042,13 @@ async function addNewCategory() {
   if (!name) return;
 
   try {
-    const response = await chrome.runtime.sendMessage({
-      action: 'addCategory',
-      name
-    });
-    if (response.success) {
-      categories = response.data;
-      newCatInput.classList.add('hidden');
-      btnAddCat.classList.remove('hidden');
-      inputCatName.value = '';
-      renderAll();
-    } else {
-      alert(response.error);
-    }
-  } catch (err) {
-    // 直接操作 storage
-    if (categories.includes(name)) {
-      alert('分类已存在');
-      return;
-    }
-    categories.push(name);
-    await chrome.storage.local.set({ xhs_categories: categories });
+    categories = await sendAction('addCategory', { name });
     newCatInput.classList.add('hidden');
     btnAddCat.classList.remove('hidden');
     inputCatName.value = '';
     renderAll();
+  } catch (error) {
+    showToast(error.message || '分类创建失败', 'error');
   }
 }
 
@@ -1603,18 +1478,24 @@ function addNoiseTexture(ctx, w, h) {
  * 导出数据为 JSON 文件并触发下载
  */
 async function exportData() {
-  const result = await chrome.storage.local.get(['xhs_categories', 'xhs_comments', 'xhs_summaries']);
-  const exportComments = result.xhs_comments || [];
-  if (exportComments.length === 0) {
+  await downloadDataBackup(true);
+}
+
+/** 下载当前工作区的 JSON 备份；迁移前允许备份空工作区。 */
+async function downloadDataBackup(requireComments = true, source = { categories, comments, summaries }) {
+  if (requireComments && source.comments.length === 0) {
     showResultModal('导出为文件', '暂无评论数据可导出');
-    return;
+    return false;
   }
   const data = {
     version: 1,
     exportedAt: new Date().toISOString(),
-    categories: result.xhs_categories || [],
-    comments: exportComments,
-    summaries: result.xhs_summaries || {}
+    categories: source.categories,
+    comments: source.comments.map(({ noteConflicts: _noteConflicts, ...comment }) => comment),
+    summaries: Object.fromEntries(Object.entries(source.summaries).map(([category, summary]) => {
+      const { contentConflicts: _contentConflicts, ...savedSummary } = summary;
+      return [category, savedSummary];
+    }))
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1623,6 +1504,7 @@ async function exportData() {
   a.download = `xhs-comments-${new Date().toISOString().slice(0, 16).replace(':', '-')}.json`;
   a.click();
   URL.revokeObjectURL(url);
+  return true;
 }
 
 /** 待导入数据暂存（预览确认阶段使用） */
@@ -1670,13 +1552,8 @@ async function importData(file) {
     return;
   }
 
-  // 读取当前数据用于统计新增/重复
-  const current = await chrome.storage.local.get(['xhs_categories', 'xhs_comments']);
-  const currentCategories = current.xhs_categories || [];
-  const currentComments = current.xhs_comments || [];
-
-  const newCats = data.categories.filter(cat => !currentCategories.includes(cat));
-  const existingIds = new Set(currentComments.map(c => c.id));
+  const newCats = data.categories.filter(cat => !categories.includes(cat));
+  const existingIds = new Set(comments.map(c => c.id));
   const newComments = data.comments.filter(c => !existingIds.has(c.id));
   const skipCount = data.comments.length - newComments.length;
 
@@ -1703,47 +1580,18 @@ async function confirmImport() {
   pendingImport = null;
 
   try {
-    // 读取当前数据
-    const current = await chrome.storage.local.get(['xhs_categories', 'xhs_comments', 'xhs_summaries']);
-    const currentCategories = current.xhs_categories || [];
-    const currentComments = current.xhs_comments || [];
-    const currentSummaries = current.xhs_summaries || {};
-
-    // 合并分类（去重）
-    const mergedCategories = [...currentCategories];
-    let newCatCount = 0;
-    data.categories.forEach(cat => {
-      if (!mergedCategories.includes(cat)) {
-        mergedCategories.push(cat);
-        newCatCount++;
-      }
-    });
-
-    // 合并评论（按 id 去重，分类不在列表内的归到「未分类」）
-    const existingIds = new Set(currentComments.map(c => c.id));
-    const newComments = data.comments
-      .filter(c => !existingIds.has(c.id))
-      .map(c => mergedCategories.includes(c.category) ? c : { ...c, category: '未分类' });
-    const mergedComments = [...newComments, ...currentComments];
-
-    // 合并 AI 总结（导入的总结不覆盖已有）
-    const mergedSummaries = { ...(data.summaries || {}), ...currentSummaries };
-
-    await chrome.storage.local.set({
-      xhs_categories: mergedCategories,
-      xhs_comments: mergedComments,
-      xhs_summaries: mergedSummaries
-    });
-
-    // 更新内存状态并渲染，评论直接显示
-    categories = mergedCategories;
-    comments = mergedComments;
-    summaries = mergedSummaries;
+    const beforeCategories = new Set(categories);
+    const beforeComments = new Set(comments.map(comment => comment.id));
+    const projection = await sendAction('importData', { data });
+    categories = projection.categories;
+    comments = projection.comments;
+    summaries = projection.summaries;
     renderAll();
-
-    showToast(`导入成功，新增 ${newCatCount} 个分类、${newComments.length} 条评论`, 'success');
-  } catch (err) {
-    showToast('导入失败', 'error');
+    const newCategoryCount = categories.filter(category => !beforeCategories.has(category)).length;
+    const newCommentCount = comments.filter(comment => !beforeComments.has(comment.id)).length;
+    showToast(`导入成功，新增 ${newCategoryCount} 个分类、${newCommentCount} 条评论`, 'success');
+  } catch (error) {
+    showToast(error.message || '导入失败', 'error');
   }
 }
 
@@ -1821,6 +1669,7 @@ function loadSummaryForCategory(category) {
 /** 进入编辑态 */
 function enterSummaryEdit() {
   summaryEditMode = true;
+  summaryEditingCategory = currentCategory;
   summaryEmpty.classList.add('hidden');
   summaryPreview.classList.add('hidden');
   summaryPlaceholder.classList.add('hidden');
@@ -1829,7 +1678,9 @@ function enterSummaryEdit() {
   summaryAutosave.classList.add('hidden');
   summaryEditor.classList.remove('hidden');
   const summary = summaries[currentCategory];
-  summaryEditor.value = summary ? summary.content : '';
+  summaryEditor.value = summaryDrafts.has(currentCategory)
+    ? summaryDrafts.get(currentCategory)
+    : (summary ? summary.content : '');
   btnSummaryEdit.classList.add('active');
   btnSummaryEdit.title = '退出编辑';
   summaryEditor.focus();
@@ -1838,6 +1689,7 @@ function enterSummaryEdit() {
 /** 退出编辑态 */
 function exitSummaryEdit() {
   summaryEditMode = false;
+  summaryEditingCategory = null;
   summaryEditor.classList.add('hidden');
   btnSummaryEdit.classList.remove('active');
   btnSummaryEdit.title = '编辑';
@@ -1858,25 +1710,35 @@ function exitSummaryEdit() {
 /** 防抖工具 */
 function debounce(fn, delay) {
   let timer;
-  return function (...args) {
+  const wrapped = function (...args) {
     clearTimeout(timer);
     timer = setTimeout(() => fn.apply(this, args), delay);
   };
+  wrapped.cancel = () => {
+    clearTimeout(timer);
+    timer = null;
+  };
+  return wrapped;
 }
 
 /** 自动保存总结（防抖 1 秒） */
-const autoSaveSummary = debounce(async function () {
-  const content = summaryEditor.value.trim();
+const autoSaveSummary = debounce(async function (category, content) {
   if (!content) {
-    delete summaries[currentCategory];
+    delete summaries[category];
   } else {
-    summaries[currentCategory] = {
+    summaries[category] = {
       content,
       updatedAt: Date.now(),
-      generatedBy: summaries[currentCategory]?.generatedBy === 'ai' ? 'ai' : 'manual'
+      generatedBy: summaries[category]?.generatedBy === 'ai' ? 'ai' : 'manual'
     };
   }
-  await saveSummariesToStorage();
+  const saved = await saveSummaryToStorage(category);
+  if (currentCategory !== category || summaryEditingCategory !== category) return;
+  if (!saved) {
+    summaryAutosave.textContent = '保存失败，内容仍在编辑框中，请修改后重试';
+    summaryAutosave.classList.remove('hidden');
+    return;
+  }
   const now = new Date();
   const time = String(now.getHours()).padStart(2, '0') + ':' +
                String(now.getMinutes()).padStart(2, '0') + ':' +
@@ -1886,18 +1748,21 @@ const autoSaveSummary = debounce(async function () {
 }, 1000);
 
 /** 即时保存（退出编辑时用） */
-function flushAutoSave() {
+async function flushAutoSave() {
+  autoSaveSummary.cancel();
+  const category = summaryEditingCategory;
+  if (!category) return true;
   const content = summaryEditor.value.trim();
   if (!content) {
-    delete summaries[currentCategory];
+    delete summaries[category];
   } else {
-    summaries[currentCategory] = {
+    summaries[category] = {
       content,
       updatedAt: Date.now(),
-      generatedBy: summaries[currentCategory]?.generatedBy === 'ai' ? 'ai' : 'manual'
+      generatedBy: summaries[category]?.generatedBy === 'ai' ? 'ai' : 'manual'
     };
   }
-  saveSummariesToStorage();
+  return saveSummaryToStorage(category);
 }
 
 /** AI 生成总结 */
@@ -1907,7 +1772,10 @@ async function aiGenerateSummary() {
     if (!configured) return;
   }
 
-  const categoryComments = comments.filter(c => c.category === currentCategory);
+  const category = currentCategory;
+  autoSaveSummary.cancel();
+  summaryEditingCategory = null;
+  const categoryComments = comments.filter(c => c.category === category);
   if (categoryComments.length === 0) return;
 
   summaryGenerating = true;
@@ -1941,19 +1809,30 @@ ${commentsText}
 
   try {
     const result = await callLLMApi(prompt);
-    summaries[currentCategory] = {
+    summaries[category] = {
       content: result,
       updatedAt: Date.now(),
       generatedBy: 'ai'
     };
-    await saveSummariesToStorage();
+    const saved = await saveSummaryToStorage(category);
     summaryGenerating = false;
-    loadSummaryForCategory(currentCategory);
+    if (!saved) {
+      summaryDrafts.set(category, result);
+      if (currentCategory === category) {
+        enterSummaryEdit();
+        summaryAutosave.textContent = 'AI 总结尚未保存，请继续编辑后重试';
+        summaryAutosave.classList.remove('hidden');
+      }
+      return;
+    }
+    summaryDrafts.delete(category);
+    if (currentCategory === category) loadSummaryForCategory(category);
+    else updateRightPanel();
   } catch (err) {
     summaryGenerating = false;
     summaryLoading.classList.add('hidden');
     showApiErrorModal(err.code || 'Error', err.message || '未知错误');
-    loadSummaryForCategory(currentCategory);
+    updateRightPanel();
   }
 }
 
@@ -2063,11 +1942,25 @@ function exportSummaryMd() {
   URL.revokeObjectURL(url);
 }
 
-/** 保存总结到 storage */
-async function saveSummariesToStorage() {
+/** 通过统一后台动作保存或删除指定分类总结。 */
+async function saveSummaryToStorage(category) {
   try {
-    await chrome.storage.local.set({ xhs_summaries: summaries });
-  } catch (e) { /* 忽略 */ }
+    const summary = summaries[category];
+    const result = await globalThis.XHS_SUMMARY_STORE.persistCategory({ category, summary, sendAction });
+    if (result.summaries) summaries = result.summaries;
+    else summaries[category] = result.summary;
+    summaryDrafts.delete(category);
+    cloudController?.setConflicts(comments, summaries);
+    return true;
+  } catch (error) {
+    const persisted = await sendAction('getSummaries').catch(() => null);
+    if (persisted) {
+      if (Object.hasOwn(persisted, category)) summaries[category] = persisted[category];
+      else delete summaries[category];
+    }
+    showToast(error.message || '总结保存失败', 'error');
+    return false;
+  }
 }
 
 /**
@@ -3374,11 +3267,11 @@ window.addEventListener('resize', () => {
 });
 
 /* ========== AI 总结按钮事件 ========== */
-btnSummaryEdit.addEventListener('click', () => {
+btnSummaryEdit.addEventListener('click', async () => {
   if (currentCategory === '全部') return;
   if (summaryGenerating) return;
   if (summaryEditMode) {
-    flushAutoSave();
+    if (!await flushAutoSave()) return;
     exitSummaryEdit();
   } else {
     enterSummaryEdit();
@@ -3401,7 +3294,8 @@ btnSummaryExport.addEventListener('click', () => {
 
 // 编辑区输入 → 自动保存
 summaryEditor.addEventListener('input', () => {
-  autoSaveSummary();
+  if (!summaryEditingCategory) return;
+  autoSaveSummary(summaryEditingCategory, summaryEditor.value.trim());
 });
 
 /* 事件绑定 */
@@ -3457,9 +3351,17 @@ btnClear.addEventListener('click', () => {
 // 确认清空数据
 async function confirmClearData() {
   closeClearModal();
-  await chrome.storage.local.remove(['xhs_categories', 'xhs_comments']);
-  await chrome.storage.local.set({ xhs_categories: ['未分类', '好物', '避雷', '搞笑'] });
-  location.reload();
+  try {
+    const projection = await sendAction('clearAll');
+    categories = projection.categories;
+    comments = projection.comments;
+    summaries = projection.summaries;
+    currentCategory = '全部';
+    renderAll();
+    showToast('收藏数据已清空', 'success');
+  } catch (error) {
+    showToast(error.message || '清空失败', 'error');
+  }
 }
 
 // 关闭清空弹窗

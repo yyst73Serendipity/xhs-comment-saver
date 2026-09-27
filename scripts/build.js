@@ -92,6 +92,9 @@ const publicFiles = [
   'manager/api-config-core.js',
   'manager/api-config-store.js',
   'manager/apiconfig.js',
+  'manager/cloud-panel.css',
+  'manager/cloud-panel.js',
+  'manager/summary-store.js',
   'manager/manager.css',
   'manager/manager.html',
   'manager/manager.js'
