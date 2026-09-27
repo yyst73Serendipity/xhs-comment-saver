@@ -27,6 +27,7 @@ node_modules/
 
 # 草稿
 uidraft/
+.superpowers/
 
 # Codex 项目说明
 AGENTS.md
