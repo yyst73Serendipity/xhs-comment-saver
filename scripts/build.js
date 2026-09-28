@@ -98,7 +98,8 @@ const publicFiles = [
   'manager/summary-store.js',
   'manager/manager.css',
   'manager/manager.html',
-  'manager/manager.js'
+  'manager/manager.js',
+  'manager/setup.html'
 ];
 for (const file of publicFiles) {
   const target = `${extensionOutput}/${file}`;

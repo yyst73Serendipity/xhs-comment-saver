@@ -109,6 +109,7 @@ body.app-body {
 }
 
 .header-utility button,
+.header-utility .header-help,
 .cloud-primary-actions button {
   min-height: 32px;
   border: 1px solid var(--inspiration-on-dark-line);
@@ -120,9 +121,11 @@ body.app-body {
   font: inherit;
   font-size: 12px;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .header-utility button:hover,
+.header-utility .header-help:hover,
 .cloud-primary-actions button:hover {
   border-color: var(--inspiration-on-dark);
   background: var(--inspiration-on-dark-soft);
@@ -784,118 +787,6 @@ body.app-body {
   color: var(--inspiration-white);
 }
 
-.cloud-help-dialog {
-  width: min(680px, calc(100vw - 32px));
-  max-width: 680px;
-  padding: 0;
-  overflow: hidden;
-}
-
-.cloud-help-heading {
-  padding: 30px 34px 22px;
-  border-bottom: 1px solid var(--inspiration-line);
-  background: linear-gradient(135deg, var(--inspiration-paper), var(--inspiration-sidebar));
-}
-
-.cloud-help-eyebrow {
-  display: inline-block;
-  margin-bottom: 8px;
-  color: var(--inspiration-accent);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-}
-
-.cloud-help-dialog .modal-title {
-  margin-bottom: 9px;
-  font-size: 24px;
-  letter-spacing: 0.03em;
-}
-
-.cloud-help-intro {
-  max-width: 570px;
-  color: var(--inspiration-muted);
-  font-size: 14px;
-  line-height: 1.75;
-}
-
-.cloud-help-body {
-  margin: 0;
-  padding: 22px 34px 12px;
-}
-
-.cloud-help-steps {
-  display: grid;
-  gap: 10px;
-  list-style: none;
-}
-
-.cloud-help-steps li {
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-  padding: 13px 15px;
-  border: 1px solid var(--inspiration-line);
-  border-radius: 11px;
-  background: var(--inspiration-page);
-}
-
-.cloud-help-step-number {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: 9px;
-  background: var(--inspiration-accent-soft);
-  color: var(--inspiration-accent-deep);
-  font-size: 11px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-
-.cloud-help-step-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-  color: var(--inspiration-muted);
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-.cloud-help-step-copy strong {
-  color: var(--inspiration-ink);
-  font-size: 14px;
-}
-
-.cloud-help-note {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
-  margin-top: 14px;
-  padding: 11px 13px;
-  border-left: 3px solid var(--inspiration-warning);
-  border-radius: 0 9px 9px 0;
-  background: var(--inspiration-note);
-  color: var(--inspiration-muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.cloud-help-note strong {
-  color: var(--inspiration-ink);
-  white-space: nowrap;
-}
-
-.cloud-help-dialog .modal-actions {
-  padding: 12px 34px 24px;
-}
-
-.cloud-help-dialog .modal-actions button {
-  min-width: 112px;
-}
-
 .storage-quota-bar {
   border-top-color: var(--inspiration-line);
   background: var(--inspiration-header-deep);
@@ -1006,11 +897,6 @@ a:focus-visible {
     border-left: 0;
   }
 
-  .cloud-help-heading,
-  .cloud-help-body,
-  .cloud-help-dialog .modal-actions {
-    padding-inline: 22px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

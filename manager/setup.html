@@ -1,0 +1,131 @@
+<!--
+  Firebase 个人云同步配置新手手册，使用者按步骤创建并绑定自己的项目。
+-->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Firebase 云同步配置手册</title>
+  <style>
+    :root { color-scheme: light; --ink:#392d31; --muted:#806b67; --paper:#fffaf6; --page:#f7efea; --line:#ead6ce; --accent:#e84c5b; --note:#fff3eb; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--page); color:var(--ink); font:15px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+    header { background:#35282d; color:#fff8f4; }
+    .header-inner, main { width:min(880px, calc(100% - 40px)); margin:auto; }
+    .header-inner { padding:34px 0 30px; }
+    h1 { margin:0 0 8px; font:700 30px/1.3 "Songti SC",SimSun,serif; }
+    header p { margin:0; color:#dbcac5; }
+    main { margin-top:28px; margin-bottom:60px; padding:34px 42px; border:1px solid var(--line); border-radius:14px; background:var(--paper); }
+    h2 { margin:34px 0 10px; padding-top:4px; font-size:20px; }
+    h2:first-of-type { margin-top:0; }
+    p, li { color:var(--muted); }
+    strong { color:var(--ink); }
+    a { color:var(--accent); }
+    code { padding:2px 6px; border-radius:5px; background:#f1e8e3; color:var(--ink); }
+    pre { overflow:auto; margin:12px 0; padding:15px 17px; border:1px solid var(--line); border-radius:9px; background:#30262a; color:#fff8f4; line-height:1.55; }
+    pre code { padding:0; background:transparent; color:inherit; }
+    .note { margin:18px 0; padding:13px 16px; border-left:4px solid var(--accent); background:var(--note); color:var(--muted); }
+    .checklist li { margin-bottom:5px; }
+    .back { display:inline-block; margin-top:18px; color:#fff8f4; }
+    @media (max-width:640px) { .header-inner, main { width:min(100% - 24px, 880px); } main { padding:24px 20px; } h1 { font-size:25px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>Firebase 云同步配置手册</h1>
+      <p>每位使用者都要创建自己的 Firebase 项目，评论和笔记才会彼此隔离。</p>
+      <a class="back" href="manager.html">返回评论管理页</a>
+    </div>
+  </header>
+
+  <main>
+    <h2>开始之前</h2>
+    <p>本项目使用 Firebase Spark 免费方案即可完成个人云同步。准备好 Chrome、Node.js、npm、一个 Google 账号，以及完整的项目源码。</p>
+    <p class="note"><strong>重要：</strong>不要复用别人已经配置好的 Firebase 项目，也不要把 Google 密码、Firebase CLI 授权码或 AI API Key 写进配置文件。</p>
+
+    <h2>1. 创建 Firebase 项目</h2>
+    <ol>
+      <li>打开 <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer">Firebase 控制台</a>，点击“创建项目”。</li>
+      <li>填写一个只供自己使用的项目名称，保持 Spark 免费方案。</li>
+      <li>Google Analytics 对本扩展不是必需项，可以关闭。</li>
+    </ol>
+
+    <h2>2. 注册 Web 应用</h2>
+    <p>在“项目概览”点击 Web 图标 <code>&lt;/&gt;</code> 注册应用。复制页面给出的 Firebase 配置，其中会包含 <code>apiKey</code>、<code>authDomain</code>、<code>projectId</code>、<code>storageBucket</code>、<code>messagingSenderId</code> 和 <code>appId</code>。</p>
+
+    <h2>3. 启用 Google 登录</h2>
+    <p>进入“构建 → Authentication → 登录方法”，选择 Google，开启该提供方，选择项目支持邮箱并保存。</p>
+
+    <h2>4. 创建 Firestore</h2>
+    <p>进入“构建 → Firestore Database”，创建 <code>(default)</code> Standard 数据库。选择“生产模式”，并选择离自己较近的区域。不要在控制台手动放宽安全规则。</p>
+
+    <h2>5. 创建本机配置</h2>
+    <p>在项目根目录执行：</p>
+    <pre><code>cp config/firebase.example.json config/firebase.local.json</code></pre>
+    <p>把 Web 应用配置写入新文件。第一次配置时保持 <code>ownerUid</code> 为空：</p>
+    <pre><code>{
+  "apiKey": "控制台中的 apiKey",
+  "authDomain": "你的项目ID.firebaseapp.com",
+  "projectId": "你的项目ID",
+  "storageBucket": "控制台中的 storageBucket",
+  "messagingSenderId": "控制台中的 messagingSenderId",
+  "appId": "控制台中的 appId",
+  "authPageUrl": "https://你的项目ID.web.app",
+  "ownerUid": ""
+}</code></pre>
+    <p><code>config/firebase.local.json</code> 只保存在本机，并已被 Git 忽略。</p>
+
+    <h2>6. 登录 Firebase CLI 并部署登录页</h2>
+    <pre><code>npm install
+npx firebase login
+npm run build
+npm run deploy:hosting</code></pre>
+    <p>如果 CLI 的本机回调失败，可以改用 <code>npx firebase login --no-localhost</code>。此时只部署登录页，云端评论数据仍不会开放。</p>
+
+    <h2>7. 加载扩展</h2>
+    <ol>
+      <li>打开 <code>chrome://extensions</code>，开启“开发者模式”。</li>
+      <li>点击“加载已解压的扩展程序”。</li>
+      <li>选择项目中的 <code>dist/extension</code>，不要选择源码根目录。</li>
+      <li>点击扩展图标，打开评论管理页。</li>
+    </ol>
+
+    <h2>8. 登录并取得 UID</h2>
+    <ol>
+      <li>在管理页点击“使用 Google 登录”，登录以后要用于同步的账号。</li>
+      <li>回到 Firebase 控制台，打开“Authentication → 用户”。</li>
+      <li>复制该账号对应的“用户 UID”。UID 是账号标识，不是密码。</li>
+    </ol>
+
+    <h2>9. 绑定 ownerUid 并部署规则</h2>
+    <p>把刚复制的 UID 填入 <code>config/firebase.local.json</code> 的 <code>ownerUid</code>，然后执行：</p>
+    <pre><code>npm run deploy</code></pre>
+    <p>部署完成后，回到 <code>chrome://extensions</code> 点击扩展的“重新加载”，再重新打开管理页。只有这个 UID 对应的 Google 账号能够访问云端数据。</p>
+
+    <h2>10. 迁移本机数据并验证</h2>
+    <ol>
+      <li>已有本机收藏时，点击“迁移本机数据”。</li>
+      <li>先下载 JSON 备份，确认文件已落盘，再点击“确认迁移”。</li>
+      <li>等待顶部状态显示“已同步”。</li>
+      <li>换一台电脑或另一个 Chrome 配置，加载同一份个人构建并登录同一账号，点击“立即同步”验证数据。</li>
+    </ol>
+
+    <h2>完成检查</h2>
+    <ul class="checklist">
+      <li>管理页顶部显示你的 Google 邮箱。</li>
+      <li>“立即同步”“迁移本机数据”和“清除本机缓存”可以使用。</li>
+      <li>同步完成后显示最近同步时间。</li>
+      <li>另一台设备登录同一账号后能够拉取评论、分类、笔记和 AI 总结。</li>
+    </ul>
+
+    <h2>常见问题</h2>
+    <p><strong>一直显示仅保存在本机：</strong>检查 <code>firebase.local.json</code> 是否填写完整，并重新运行 <code>npm run build</code>。</p>
+    <p><strong>登录后同步按钮不可用：</strong>检查 <code>ownerUid</code> 是否填写，是否运行过 <code>npm run deploy</code>，以及扩展是否重新加载。</p>
+    <p><strong>提示权限不足：</strong>确认当前登录账号在 Authentication 中的 UID 与 <code>ownerUid</code> 完全一致。</p>
+    <p><strong>换电脑没有数据：</strong>确认使用的是同一份个人构建和同一个 Google 账号，然后点击“立即同步”。</p>
+    <p><strong>是否收费：</strong>个人轻量使用通常可以保持在 Spark 免费额度内，实际用量请以 Firebase 控制台显示为准。</p>
+  </main>
+</body>
+</html>

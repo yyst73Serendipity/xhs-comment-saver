@@ -35,12 +35,10 @@ test('管理页提供全部云同步控件且保留三栏主体', () => {
   assert.doesNotMatch(cloudPanel, /UID:\s*\$\{/);
 });
 
-test('配置帮助使用内置弹窗打开和关闭', () => {
-  for (const id of ['cloud-help', 'cloud-help-modal', 'cloud-help-close']) {
-    assert.match(cloudPanel, new RegExp(`byId\\('${id}'\\)`));
-  }
-  assert.match(cloudPanel, /help\.addEventListener\('click',[\s\S]*helpModal\.classList\.remove\(HIDDEN\)/);
-  assert.match(cloudPanel, /helpClose\.addEventListener\('click',[\s\S]*helpModal\.classList\.add\(HIDDEN\)/);
+test('配置帮助在新标签页打开独立静态手册', () => {
+  assert.match(html, /<a id="cloud-help"[^>]+href="setup\.html"[^>]+target="_blank"[^>]+rel="noopener"[^>]*>配置帮助<\/a>/);
+  assert.doesNotMatch(html, /cloud-help-modal|cloud-help-close/);
+  assert.doesNotMatch(cloudPanel, /byId\('cloud-help|help\.addEventListener|helpClose/);
 });
 
 test('顶部栏用稳定状态名表达同步阶段', () => {
