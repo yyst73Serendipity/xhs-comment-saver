@@ -165,15 +165,37 @@
 
       <!-- Google 云同步配置帮助 -->
       <div class="modal-overlay hidden" id="cloud-help-modal" role="dialog" aria-modal="true" aria-labelledby="cloud-help-title">
-        <div class="modal-dialog cloud-dialog">
-          <div class="modal-title" id="cloud-help-title">Google 云同步使用说明</div>
+        <div class="modal-dialog cloud-dialog cloud-help-dialog">
+          <div class="cloud-help-heading">
+            <span class="cloud-help-eyebrow">跨设备同步</span>
+            <div class="modal-title" id="cloud-help-title">Google 云同步使用说明</div>
+            <p class="cloud-help-intro">在不同电脑或浏览器登录同一个 Google 账号，即可继续使用你的评论、分类、私人笔记和 AI 总结。</p>
+          </div>
           <div class="modal-body cloud-help-body">
-            <p>登录同一个 Google 账号，即可在不同电脑和浏览器间同步评论、分类、私人笔记和 AI 总结。</p>
-            <ol>
-              <li>首次登录后，如有旧本机收藏，先使用“迁移本机数据”下载备份并确认迁移。</li>
-              <li>账号内新增、编辑、导入和删除会自动加入同步队列。</li>
-              <li>“清除本机缓存”只重新拉取当前账号数据，不会删除云端收藏。</li>
+            <ol class="cloud-help-steps">
+              <li>
+                <span class="cloud-help-step-number">01</span>
+                <span class="cloud-help-step-copy">
+                  <strong>迁移旧收藏</strong>
+                  <span>首次登录且本机已有收藏时，点击“迁移本机数据”，先下载备份，再确认迁移。</span>
+                </span>
+              </li>
+              <li>
+                <span class="cloud-help-step-number">02</span>
+                <span class="cloud-help-step-copy">
+                  <strong>自动同步改动</strong>
+                  <span>新增、编辑、导入和删除会自动进入同步队列，也可以点击“立即同步”。</span>
+                </span>
+              </li>
+              <li>
+                <span class="cloud-help-step-number">03</span>
+                <span class="cloud-help-step-copy">
+                  <strong>在新设备恢复</strong>
+                  <span>加载扩展并登录同一账号，点击“立即同步”即可拉取云端收藏。</span>
+                </span>
+              </li>
             </ol>
+            <p class="cloud-help-note"><strong>安全提示</strong><span>“清除本机缓存”只会重新拉取当前账号的数据，不会删除云端收藏。</span></p>
           </div>
           <div class="modal-actions">
             <button class="btn-modal-confirm" id="cloud-help-close" type="button">知道了</button>

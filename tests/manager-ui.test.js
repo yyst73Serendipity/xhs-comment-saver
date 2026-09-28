@@ -60,3 +60,12 @@ test('右栏明确分为 AI 总结和数据分析', () => {
   assert.match(html, />数据分析</);
   assert.match(html, /id="graph-view-title"/);
 });
+
+test('配置帮助使用分层标题、步骤卡片和安全提示', () => {
+  assert.match(html, /class="modal-dialog cloud-dialog cloud-help-dialog"/);
+  assert.match(html, /class="cloud-help-intro"/);
+  assert.match(html, /class="cloud-help-steps"/);
+  assert.match(html, /class="cloud-help-note"/);
+  assert.match(theme, /\.cloud-help-step-number/);
+  assert.match(theme, /\.cloud-help-dialog\s+\.modal-actions/);
+});
