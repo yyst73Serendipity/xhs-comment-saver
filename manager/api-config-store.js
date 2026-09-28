@@ -42,14 +42,12 @@
       const apiKey = envValues[keyReference] || '';
       if (!defaults || !providerConfig || !apiKey) return null;
 
-      const baseUrl = globalThis.XHS_API_CONFIG_CORE.validateProviderUrl(
-        provider,
-        providerConfig.baseUrl || defaults.baseUrl
-      );
+      const baseUrl = globalThis.XHS_API_CONFIG_CORE.validateApiUrl(providerConfig.baseUrl || defaults.baseUrl);
       const migrated = {
         activeProvider: provider,
         providers: {
           [provider]: {
+            protocol: provider === 'anthropic' ? 'anthropic' : 'openai-compatible',
             apiKey,
             baseUrl,
             model: providerConfig.model || defaults.model

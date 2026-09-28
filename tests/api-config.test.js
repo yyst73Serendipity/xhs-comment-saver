@@ -14,27 +14,54 @@ async function loadApiModules() {
   return context;
 }
 
-test('只接受四个服务商各自已授权的 API 来源', async () => {
+test('任意公网 HTTPS OpenAI 兼容端点可生成精确主机权限', async () => {
   const context = await loadApiModules();
-  const { PROVIDER_DEFAULTS, validateProviderUrl } = context.XHS_API_CONFIG_CORE;
+  const { validateApiUrl, createHostPermissionPattern } = context.XHS_API_CONFIG_CORE;
   const manifest = JSON.parse(await readFile('manifest.json', 'utf8'));
 
-  for (const [provider, defaults] of Object.entries(PROVIDER_DEFAULTS)) {
-    assert.equal(validateProviderUrl(provider, defaults.baseUrl), defaults.baseUrl);
-    const originPermission = `${new URL(defaults.baseUrl).origin}/*`;
-    assert.equal(manifest.host_permissions.includes(originPermission), true);
+  const examples = [
+    ['https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', 'https://dashscope.aliyuncs.com/*'],
+    ['https://api.moonshot.cn/v1/chat/completions', 'https://api.moonshot.cn/*'],
+    ['https://open.bigmodel.cn/api/paas/v4/chat/completions', 'https://open.bigmodel.cn/*']
+  ];
+  for (const [url, permission] of examples) {
+    assert.equal(validateApiUrl(url), url);
+    assert.equal(createHostPermissionPattern(url), permission);
   }
-  const expectedPermissions = Object.values(PROVIDER_DEFAULTS)
-    .map(defaults => `${new URL(defaults.baseUrl).origin}/*`)
-    .sort();
-  const actualPermissions = manifest.host_permissions
-    .filter(value => value.startsWith('https://api.'))
-    .sort();
-  assert.deepEqual(actualPermissions, expectedPermissions);
-  assert.throws(
-    () => validateProviderUrl('deepseek', 'https://llm.example.com/chat/completions'),
-    /只能使用 DeepSeek 官方 API 地址/
-  );
+
+  assert.deepEqual(manifest.optional_host_permissions, ['https://*/*']);
+  assert.equal(manifest.host_permissions.includes('https://*/*'), false);
+  assert.equal(manifest.host_permissions.some(value => /api\.(openai|deepseek|minimax|anthropic)/.test(value)), false);
+});
+
+test('非公网 HTTPS API 地址被拒绝', async () => {
+  const { validateApiUrl } = (await loadApiModules()).XHS_API_CONFIG_CORE;
+  for (const value of [
+    'http://api.example.com/v1/chat/completions',
+    'https://localhost/v1/chat/completions',
+    'https://model.local/v1/chat/completions',
+    'https://127.0.0.1/v1/chat/completions',
+    'https://192.168.1.2/v1/chat/completions',
+    'https://user:secret@api.example.com/v1/chat/completions'
+  ]) assert.throws(() => validateApiUrl(value));
+});
+
+test('任意服务商名称按 OpenAI 兼容协议标准化', async () => {
+  const { normalizeApiConfig } = (await loadApiModules()).XHS_API_CONFIG_CORE;
+  const result = normalizeApiConfig({
+    activeProvider: ' Qwen ',
+    providers: {
+      qwen: {
+        protocol: 'openai-compatible',
+        apiKey: 'secret',
+        baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+        model: 'qwen-plus'
+      }
+    }
+  });
+  assert.equal(result.provider, 'qwen');
+  assert.equal(result.protocol, 'openai-compatible');
+  assert.equal(result.model, 'qwen-plus');
 });
 
 test('同一源码加载路径可把旧配置迁移到当前安装实例', async () => {

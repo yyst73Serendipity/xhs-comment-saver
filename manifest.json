@@ -20,11 +20,11 @@
 
   "host_permissions": [
     "*://*.xiaohongshu.com/*",
-    "https://*.googleapis.com/*",
-    "https://api.anthropic.com/*",
-    "https://api.openai.com/*",
-    "https://api.minimax.chat/*",
-    "https://api.deepseek.com/*"
+    "https://*.googleapis.com/*"
+  ],
+
+  "optional_host_permissions": [
+    "https://*/*"
   ],
 
   "content_security_policy": {
