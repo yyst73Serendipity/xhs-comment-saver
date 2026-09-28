@@ -3094,7 +3094,7 @@ function showApiConfigError(message) {
 
 /** 根据当前服务商填入官方 API 地址和默认模型。 */
 function fillApiProviderDefaults() {
-  const provider = apiProvider.value;
+  const provider = apiProvider.value.trim().toLowerCase();
   const defaults = API_PROVIDER_DEFAULTS[provider];
   if (!defaults) return;
   const isCurrentProvider = window.__apiConfig?.provider === provider;
@@ -3131,7 +3131,12 @@ function configureApi() {
 /** 校验并保存 AI 配置表单。 */
 async function saveApiConfig(event) {
   event.preventDefault();
-  const provider = apiProvider.value;
+  const provider = apiProvider.value.trim().toLowerCase();
+  if (!API_PROVIDER_DEFAULTS[provider] || !API_PROVIDERS[provider]) {
+    showApiConfigError('当前支持 deepseek、openai、anthropic、minimax');
+    apiProvider.focus();
+    return;
+  }
   const existingApiKey = window.__apiConfig?.provider === provider ? window.__apiConfig.apiKey : '';
   const nextApiKey = apiKey.value.trim() || existingApiKey;
   if (!nextApiKey) {

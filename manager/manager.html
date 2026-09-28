@@ -136,16 +136,12 @@
       <div class="modal-overlay hidden" id="api-config-modal" role="dialog" aria-modal="true" aria-labelledby="api-config-title">
         <form class="modal-dialog api-config-dialog" id="api-config-form">
           <div class="modal-title" id="api-config-title">AI 配置</div>
-          <p class="api-config-intro">用于生成分类总结。API Key 只保存在当前浏览器，不会同步到云端。</p>
+          <p class="api-config-intro">用于生成分类总结。出于密钥安全，API Key 不随评论数据同步；换电脑、浏览器或重新安装扩展后需要重新配置。</p>
           <div class="api-config-fields">
             <label class="api-config-field" for="api-provider">
               <span>AI 服务商</span>
-              <select id="api-provider">
-                <option value="deepseek">DeepSeek</option>
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="minimax">MiniMax</option>
-              </select>
+              <input id="api-provider" type="text" autocomplete="off" spellcheck="false" placeholder="例如：deepseek">
+              <small>支持 deepseek、openai、anthropic、minimax</small>
             </label>
             <label class="api-config-field" for="api-key">
               <span>API Key</span>

@@ -84,6 +84,8 @@ test('AI 配置使用页面中央卡片并提供完整表单', () => {
   ]) assert.equal(occurrences(id), 1, `${id} 应且只应出现一次`);
 
   assert.match(html, /id="api-config-modal"[^>]*role="dialog"[^>]*aria-modal="true"/);
+  assert.match(html, /<input id="api-provider"[^>]*type="text"/);
+  assert.doesNotMatch(html, /<select id="api-provider"/);
   assert.match(html, /id="api-key"[^>]*type="password"/);
   assert.match(theme, /\.api-config-dialog\s*\{[\s\S]*max-width:\s*560px/);
 });
@@ -94,5 +96,6 @@ test('AI 配置通过页面表单保存且不再调用浏览器原生弹窗', ()
   assert.doesNotMatch(configureSection, /\bprompt\s*\(/);
   assert.doesNotMatch(configureSection, /\balert\s*\(/);
   assert.match(managerScript, /apiConfigForm\.addEventListener\('submit'/);
+  assert.match(managerScript, /apiProvider\.value\.trim\(\)\.toLowerCase\(\)/);
   assert.match(managerScript, /validateProviderUrl\(provider, apiBaseUrl\.value\.trim\(\)\)/);
 });
