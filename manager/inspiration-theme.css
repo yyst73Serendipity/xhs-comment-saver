@@ -630,6 +630,8 @@ body.app-body {
 }
 
 .right-panel {
+  display: grid;
+  grid-template-rows: 44% 56%;
   width: auto;
   gap: 12px;
   padding: 14px;
@@ -638,6 +640,7 @@ body.app-body {
 }
 
 .panel-section {
+  min-height: 0;
   border-color: var(--inspiration-line);
   border-radius: 13px;
   background: var(--inspiration-paper);
@@ -656,6 +659,21 @@ body.app-body {
   font-weight: 700;
 }
 
+.panel-section-heading {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.panel-section-kicker {
+  overflow: hidden;
+  color: var(--inspiration-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .panel-action-btn {
   border-color: var(--inspiration-line);
   border-radius: 8px;
@@ -671,6 +689,8 @@ body.app-body {
 }
 
 .view-switch-group {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   overflow: hidden;
   gap: 0;
   border: 1px solid var(--inspiration-line);
@@ -736,6 +756,34 @@ body.app-body {
   color: var(--inspiration-success);
 }
 
+.modal-overlay {
+  background: rgba(46, 34, 39, 0.58);
+}
+
+.modal-dialog {
+  border: 1px solid var(--inspiration-line);
+  border-radius: 14px;
+  background: var(--inspiration-paper);
+  color: var(--inspiration-ink);
+  box-shadow: 0 18px 54px rgba(46, 34, 39, 0.24);
+}
+
+.modal-title {
+  color: var(--inspiration-ink);
+  font-family: "Songti SC", SimSun, serif;
+}
+
+.modal-actions .btn-modal-cancel {
+  border: 1px solid var(--inspiration-line);
+  background: var(--inspiration-sidebar);
+  color: var(--inspiration-muted);
+}
+
+.modal-actions .btn-modal-confirm {
+  background: var(--inspiration-accent);
+  color: var(--inspiration-white);
+}
+
 .storage-quota-bar {
   border-top-color: var(--inspiration-line);
   background: var(--inspiration-header-deep);
@@ -756,4 +804,104 @@ a:focus-visible {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--inspiration-muted);
+}
+
+@media (max-width: 1179px) {
+  .header-primary,
+  .header-utility {
+    flex-wrap: wrap;
+    padding-block: 9px;
+  }
+
+  .cloud-panel {
+    flex: 1 1 620px;
+  }
+
+  .main {
+    grid-template-columns: 180px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(300px, 42vh);
+  }
+
+  .sidebar {
+    grid-row: 1 / 3;
+  }
+
+  .right-panel {
+    display: grid;
+    grid-column: 2;
+    grid-row: 2;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: minmax(0, 1fr);
+    border-top: 1px solid var(--inspiration-line);
+  }
+}
+
+@media (max-width: 899px) {
+  body.app-body {
+    overflow: auto;
+  }
+
+  .app {
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .header-primary,
+  .header-utility {
+    align-items: stretch;
+  }
+
+  .cloud-panel,
+  .header-actions {
+    width: 100%;
+  }
+
+  .header-utility {
+    overflow-x: auto;
+  }
+
+  .main {
+    display: grid;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(520px, auto) minmax(680px, auto);
+  }
+
+  .sidebar {
+    grid-row: auto;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--inspiration-line);
+  }
+
+  .category-list {
+    display: flex;
+    overflow-x: auto;
+    gap: 5px;
+    padding-bottom: 4px;
+  }
+
+  .category-item {
+    flex: 0 0 auto;
+  }
+
+  .right-panel {
+    display: grid;
+    grid-column: 1;
+    grid-row: auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(300px, 44%) minmax(360px, 56%);
+    border-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -46,3 +46,17 @@ test('灵感剪贴簿主题使用统一变量并最后加载', () => {
   }
   assert.match(theme, /grid-template-columns:\s*190px\s+minmax\(0,\s*1fr\)\s+335px/);
 });
+
+test('主题覆盖键盘焦点、减弱动画和三个布局区间', () => {
+  assert.match(theme, /:focus-visible/);
+  assert.match(theme, /prefers-reduced-motion:\s*reduce/);
+  assert.match(theme, /@media\s*\(max-width:\s*1179px\)/);
+  assert.match(theme, /@media\s*\(max-width:\s*899px\)/);
+});
+
+test('右栏明确分为 AI 总结和数据分析', () => {
+  assert.match(theme, /grid-template-rows:\s*44%\s+56%/);
+  assert.match(html, />AI 总结</);
+  assert.match(html, />数据分析</);
+  assert.match(html, /id="graph-view-title"/);
+});
