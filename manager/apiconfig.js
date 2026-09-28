@@ -1,12 +1,26 @@
 /**
- * apiconfig.js - API 格式化配置
- * 定义各服务商的请求/响应格式（headers、buildBody、parseResponse）
- * 非敏感默认参数保存在代码中，API Key 与用户选择仅存 chrome.storage.local。
+ * 定义 OpenAI 兼容协议与 Anthropic 原生协议的请求响应适配器。
  */
-const API_PROVIDER_DEFAULTS = globalThis.XHS_API_CONFIG_CORE.PROVIDER_DEFAULTS;
+const API_PROVIDER_DEFAULTS = globalThis.XHS_API_CONFIG_CORE?.PROVIDER_DEFAULTS || {};
 
-const API_PROVIDERS = {
-  anthropic: {
+const API_PROTOCOL_ADAPTERS = Object.freeze({
+  'openai-compatible': Object.freeze({
+    headers(apiKey) {
+      return {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      };
+    },
+    buildBody(model, prompt) {
+      return { model, messages: [{ role: 'user', content: prompt }] };
+    },
+    parseResponse(data) {
+      const content = data?.choices?.[0]?.message?.content;
+      if (typeof content !== 'string' || !content.trim()) throw new Error('AI 接口未返回可用内容');
+      return content;
+    }
+  }),
+  anthropic: Object.freeze({
     headers(apiKey) {
       return {
         'Content-Type': 'application/json',
@@ -22,44 +36,26 @@ const API_PROVIDERS = {
       };
     },
     parseResponse(data) {
-      return data.content[0].text;
+      const content = data?.content?.[0]?.text;
+      if (typeof content !== 'string' || !content.trim()) throw new Error('AI 接口未返回可用内容');
+      return content;
     }
-  },
-  openai: {
-    headers(apiKey) {
-      return {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      };
-    },
-    buildBody(model, prompt) {
-      return { model, messages: [{ role: 'user', content: prompt }] };
-    },
-    parseResponse(data) {
-      return data.choices[0].message.content;
-    }
-  },
-  // OpenAI 兼容格式（MiniMax、DeepSeek 等）
-  minimax: {
-    headers(apiKey) {
-      return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` };
-    },
-    buildBody(model, prompt) {
-      return { model, messages: [{ role: 'user', content: prompt }] };
-    },
-    parseResponse(data) {
-      return data.choices[0].message.content;
-    }
-  },
-  deepseek: {
-    headers(apiKey) {
-      return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` };
-    },
-    buildBody(model, prompt) {
-      return { model, messages: [{ role: 'user', content: prompt }] };
-    },
-    parseResponse(data) {
-      return data.choices[0].message.content;
-    }
-  }
-};
+  })
+});
+
+/** 根据配置协议返回对应请求适配器。 */
+function getApiAdapter(protocol) {
+  const adapter = API_PROTOCOL_ADAPTERS[protocol];
+  if (!adapter) throw new Error('不支持该接口类型');
+  return adapter;
+}
+
+// 管理页切换到协议字段前继续保持当前页面可运行。
+const API_PROVIDERS = Object.freeze({
+  anthropic: API_PROTOCOL_ADAPTERS.anthropic,
+  openai: API_PROTOCOL_ADAPTERS['openai-compatible'],
+  minimax: API_PROTOCOL_ADAPTERS['openai-compatible'],
+  deepseek: API_PROTOCOL_ADAPTERS['openai-compatible']
+});
+
+globalThis.XHS_API_ADAPTERS = Object.freeze({ getAdapter: getApiAdapter });
