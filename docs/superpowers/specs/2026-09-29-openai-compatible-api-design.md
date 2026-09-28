@@ -66,7 +66,7 @@ AI 配置卡片包含：
 
 1. 修剪并校验服务商名称、API Key、API 地址和模型名称。
 2. 拒绝非 HTTPS、包含用户名或密码、缺少主机名，以及明显指向 localhost、`.local` 或私有 IP 的 URL。
-3. 由 URL 的 `origin` 生成精确主机权限。
+3. 由 URL 生成精确到 HTTPS 主机名的权限模式；Chrome 匹配模式不区分端口，路径不进入权限模式。
 4. 先用 `chrome.permissions.contains()` 检查已有权限。
 5. 没有权限时，在本次保存点击中调用 `chrome.permissions.request()`。
 6. 用户拒绝后保持弹窗打开并显示说明，不写入配置。
@@ -115,10 +115,12 @@ AI 配置卡片包含：
 
 - `manifest.json`：声明动态 HTTPS 主机权限。
 - `manager/api-config-core.js`：通用 URL 校验、权限模式和配置标准化。
+- `manager/api-permission.js`：封装权限检查和按主机申请授权。
 - `manager/apiconfig.js`：通用 OpenAI 兼容适配器并保留 Anthropic 适配器。
 - `manager/manager.html`：增加接口类型和动态授权说明。
 - `manager/manager.js`：表单保存、权限申请与中文错误处理。
 - `tests/api-config.test.js`：通用端点、迁移和权限边界测试。
+- `tests/api-permission.test.js`：授权成功、拒绝和已有权限测试。
 - `tests/manager-ui.test.js`：配置卡片结构和交互契约测试。
 - `tests/build-output.test.js`：构建后的权限和敏感信息边界测试。
 - `README.md`：更新功能说明、配置步骤和项目结构。
