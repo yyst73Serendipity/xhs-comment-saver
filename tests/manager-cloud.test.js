@@ -41,6 +41,28 @@ test('配置帮助使用内置弹窗打开和关闭', () => {
   assert.match(cloudPanel, /helpClose\.addEventListener\('click',[\s\S]*helpModal\.classList\.add\(HIDDEN\)/);
 });
 
+test('顶部栏用稳定状态名表达同步阶段', () => {
+  assert.equal(cloudApi.stateFor({ configured: false }), 'local');
+  assert.equal(cloudApi.stateFor({
+    configured: true, ownerConfigured: true, signedIn: true, syncStatus: 'syncing'
+  }), 'syncing');
+  assert.equal(cloudApi.stateFor({
+    configured: true, ownerConfigured: true, signedIn: true, syncStatus: 'error'
+  }), 'error');
+  assert.equal(cloudApi.stateFor({
+    configured: true, ownerConfigured: true, signedIn: true, pending: 2
+  }), 'pending');
+  assert.equal(cloudApi.stateFor({
+    configured: true, ownerConfigured: true, signedIn: true, pending: 0
+  }), 'ready');
+});
+
+test('刷新状态会设置面板状态和同步按钮忙碌属性', () => {
+  assert.match(cloudPanel, /panel\.dataset\.state\s*=\s*stateFor\(currentStatus\)/);
+  assert.match(cloudPanel, /sync\.setAttribute\('aria-busy'/);
+  assert.match(cloudPanel, /sync\.disabled\s*=\s*syncing/);
+});
+
 test('未填写 ownerUid 时仍可登录获取 UID但不能访问云数据', () => {
   assert.deepEqual(cloudApi.controlsFor({ configured: true, ownerConfigured: false, signedIn: false }), {
     login: true, copyUid: false, sync: false, migrate: false, conflicts: false, cache: false, logout: false

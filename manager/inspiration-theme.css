@@ -14,6 +14,9 @@
   --inspiration-accent-deep: #bc3546;
   --inspiration-accent-soft: #ffe2e3;
   --inspiration-success: #2f9a6b;
+  --inspiration-warning: #e3a43b;
+  --inspiration-syncing: #75c9ef;
+  --inspiration-error: #ff8390;
   --inspiration-danger: #d13f4f;
   --inspiration-canvas: #eee9e6;
   --inspiration-white: #fff;
@@ -157,6 +160,39 @@ body.app-body {
 
 .cloud-panel {
   color: var(--inspiration-on-dark);
+}
+
+.cloud-panel::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--inspiration-muted);
+}
+
+.cloud-panel[data-state="ready"]::before {
+  background: var(--inspiration-success);
+}
+
+.cloud-panel[data-state="pending"]::before {
+  background: var(--inspiration-warning);
+}
+
+.cloud-panel[data-state="syncing"]::before {
+  animation: sync-pulse 1.2s ease-in-out infinite;
+  background: var(--inspiration-syncing);
+}
+
+.cloud-panel[data-state="error"]::before {
+  background: var(--inspiration-error);
+}
+
+@keyframes sync-pulse {
+  50% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
 }
 
 .cloud-identity {

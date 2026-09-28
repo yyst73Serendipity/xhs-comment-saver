@@ -16,6 +16,16 @@
     return timestamp ? new Date(timestamp).toLocaleTimeString('zh-CN', { hour12: false }) : '';
   }
 
+  /** 把后台状态压缩为顶部栏可复用的视觉状态。 */
+  function stateFor(status) {
+    if (!status.configured || !status.ownerConfigured || !status.signedIn) return 'local';
+    if (status.syncStatus === 'syncing') return 'syncing';
+    if (status.syncStatus === 'error') return 'error';
+    const pending = Number.isSafeInteger(status.pending) ? status.pending : 0;
+    if (pending > 0 || status.syncStatus === 'pending') return 'pending';
+    return 'ready';
+  }
+
   /** 把后台同步状态转换为面向用户的简短文案。 */
   function statusText(status) {
     if (!status.configured) return '未配置云服务 · 当前保存在本机';
@@ -53,6 +63,7 @@
   function init({ sendAction, createBackup, reloadData, showToast }) {
     const account = byId('cloud-account');
     const statusLabel = byId('cloud-status');
+    const panel = byId('cloud-panel');
     const login = byId('cloud-login');
     const copyUid = byId('cloud-copy-uid');
     const sync = byId('cloud-sync');
@@ -98,6 +109,10 @@
           ? `${currentStatus.user?.email || 'Google 账号'} · UID: ${currentStatus.user?.uid || '未知'}`
           : '本地模式';
         statusLabel.textContent = statusText(currentStatus);
+        panel.dataset.state = stateFor(currentStatus);
+        const syncing = panel.dataset.state === 'syncing';
+        sync.setAttribute('aria-busy', String(syncing));
+        sync.disabled = syncing;
         const controls = controlsFor(currentStatus, conflicts.length);
         toggle(login, controls.login);
         toggle(copyUid, controls.copyUid);
@@ -109,6 +124,9 @@
       } catch (error) {
         account.textContent = '本地模式';
         statusLabel.textContent = error.message || '同步状态读取失败';
+        panel.dataset.state = 'error';
+        sync.setAttribute('aria-busy', 'false');
+        sync.disabled = false;
       }
     }
 
@@ -241,5 +259,5 @@
     return { refreshStatus, setConflicts };
   }
 
-  global.XHS_CLOUD_PANEL = { controlsFor, init, statusText };
+  global.XHS_CLOUD_PANEL = { controlsFor, init, stateFor, statusText };
 })(globalThis);
