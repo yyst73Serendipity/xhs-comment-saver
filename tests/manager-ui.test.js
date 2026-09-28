@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const html = await readFile('manager/manager.html', 'utf8');
+const theme = await readFile('manager/inspiration-theme.css', 'utf8');
 
 function occurrences(id) {
   return html.match(new RegExp(`id="${id}"`, 'g'))?.length || 0;
@@ -36,4 +37,12 @@ test('AI 总结和四个数据视图具有可读名称', () => {
   for (const label of ['河流图', '网格图', '仪表盘', '关系图']) {
     assert.match(html, new RegExp(`aria-label="${label}"`));
   }
+});
+
+test('灵感剪贴簿主题使用统一变量并最后加载', () => {
+  assert.match(html, /manager\.css[\s\S]*cloud-panel\.css[\s\S]*inspiration-theme\.css/);
+  for (const token of ['--inspiration-ink', '--inspiration-paper', '--inspiration-accent']) {
+    assert.match(theme, new RegExp(token));
+  }
+  assert.match(theme, /grid-template-columns:\s*190px\s+minmax\(0,\s*1fr\)\s+335px/);
 });

@@ -16,6 +16,10 @@ async function isMissing(path) {
   return access(path).then(() => false, error => error.code === 'ENOENT');
 }
 
+async function exists(path) {
+  return access(path).then(() => true, () => false);
+}
+
 test('未配置 Firebase 时构建安全且 AI 配置入口可用', async () => {
   const outputDirectory = await mkdtemp(join(tmpdir(), 'xhs-comment-saver-build-'));
   try {
@@ -56,6 +60,7 @@ test('未配置 Firebase 时构建安全且 AI 配置入口可用', async () => 
     assert.match(builtApiStore, /readApiConfig/);
     assert.match(builtManagerHtml, /id="btn-api-config"/);
     assert.match(builtManagerHtml, /data-packaged-build="true"/);
+    assert.ok(await exists(join(outputDirectory, 'extension', 'manager', 'inspiration-theme.css')));
   } finally {
     await rm(outputDirectory, { recursive: true, force: true });
   }
