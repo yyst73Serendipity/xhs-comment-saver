@@ -125,6 +125,9 @@ xhs-comment-saver/
 ├── content/                      # 内容脚本（注入小红书页面）
 │   ├── content.js                # 评论区控件注入、作者/正文提取、批量收藏
 │   └── content.css               # 收藏按钮、多选框、分类选择器浮层样式
+├── docs/                         # 配置说明、设计文档和实施计划
+│   ├── firebase-setup.md          # Firebase 云同步配置说明
+│   └── superpowers/               # 已确认的功能设计与实施计划
 ├── manager/                      # 管理页面（独立标签页）
 │   ├── manager.html              # 三栏布局页面结构
 │   ├── manager.css               # 视觉样式（v2 浅暖色 + 成长视图 + 仪表盘卡片）
