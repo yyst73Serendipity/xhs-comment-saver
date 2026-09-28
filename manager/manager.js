@@ -81,6 +81,15 @@ const btnExport = document.getElementById('btn-export');
 const btnImport = document.getElementById('btn-import');
 const btnClear = document.getElementById('btn-clear');
 const btnApiConfig = document.getElementById('btn-api-config');
+const apiConfigModal = document.getElementById('api-config-modal');
+const apiConfigForm = document.getElementById('api-config-form');
+const apiProvider = document.getElementById('api-provider');
+const apiKey = document.getElementById('api-key');
+const apiKeyHint = document.getElementById('api-key-hint');
+const apiBaseUrl = document.getElementById('api-base-url');
+const apiModel = document.getElementById('api-model');
+const apiConfigError = document.getElementById('api-config-error');
+const apiConfigCancel = document.getElementById('api-config-cancel');
 const importFile = document.getElementById('import-file');
 const deleteModal = document.getElementById('delete-modal');
 const deleteModalBody = document.getElementById('delete-modal-body');
@@ -3075,58 +3084,95 @@ function applyApiConfig(value) {
   return !!window.__apiConfig?.apiKey;
 }
 
-/** 在管理页收集本机 AI 配置，密钥只写入 chrome.storage.local。 */
-async function configureApi() {
-  const currentProvider = window.__apiConfig?.provider || 'deepseek';
-  const provider = prompt('AI 服务商（anthropic / openai / minimax / deepseek）', currentProvider);
-  if (provider === null) return false;
-  const normalizedProvider = provider.trim().toLowerCase();
-  const defaults = API_PROVIDER_DEFAULTS[normalizedProvider];
-  if (!defaults || !API_PROVIDERS[normalizedProvider]) {
-    alert('不支持该 AI 服务商');
-    return false;
+let apiConfigResolver = null;
+
+/** 在弹窗内显示校验或保存错误。 */
+function showApiConfigError(message) {
+  apiConfigError.textContent = message;
+  apiConfigError.classList.remove('hidden');
+}
+
+/** 根据当前服务商填入官方 API 地址和默认模型。 */
+function fillApiProviderDefaults() {
+  const provider = apiProvider.value;
+  const defaults = API_PROVIDER_DEFAULTS[provider];
+  if (!defaults) return;
+  const isCurrentProvider = window.__apiConfig?.provider === provider;
+  apiKey.value = '';
+  apiKey.placeholder = isCurrentProvider ? '留空则保留当前 API Key' : '请输入 API Key';
+  apiKeyHint.textContent = isCurrentProvider ? '已保存密钥；留空即可保留' : '密钥仅保存在本机';
+  apiBaseUrl.value = isCurrentProvider ? window.__apiConfig.baseUrl : defaults.baseUrl;
+  apiModel.value = isCurrentProvider ? window.__apiConfig.model : defaults.model;
+}
+
+/** 关闭 AI 配置弹窗，并把结果返回给等待生成总结的调用方。 */
+function closeApiConfig(result = false) {
+  apiConfigModal.classList.add('hidden');
+  apiConfigError.classList.add('hidden');
+  apiConfigError.textContent = '';
+  if (apiConfigResolver) {
+    apiConfigResolver(result);
+    apiConfigResolver = null;
+  }
+}
+
+/** 打开页面内 AI 配置卡片，密钥只会写入 chrome.storage.local。 */
+function configureApi() {
+  if (apiConfigResolver) apiConfigResolver(false);
+  apiProvider.value = window.__apiConfig?.provider || 'deepseek';
+  fillApiProviderDefaults();
+  apiConfigError.classList.add('hidden');
+  apiConfigError.textContent = '';
+  apiConfigModal.classList.remove('hidden');
+  requestAnimationFrame(() => apiProvider.focus());
+  return new Promise(resolve => { apiConfigResolver = resolve; });
+}
+
+/** 校验并保存 AI 配置表单。 */
+async function saveApiConfig(event) {
+  event.preventDefault();
+  const provider = apiProvider.value;
+  const existingApiKey = window.__apiConfig?.provider === provider ? window.__apiConfig.apiKey : '';
+  const nextApiKey = apiKey.value.trim() || existingApiKey;
+  if (!nextApiKey) {
+    showApiConfigError('请输入 API Key');
+    apiKey.focus();
+    return;
+  }
+  if (!apiModel.value.trim()) {
+    showApiConfigError('请输入模型名称');
+    apiModel.focus();
+    return;
   }
 
-  const existingApiKey = window.__apiConfig?.provider === normalizedProvider ? window.__apiConfig.apiKey : '';
-  const apiKeyInput = prompt(existingApiKey ? 'API Key（留空则保留当前值，仅保存在本机浏览器）' : 'API Key（仅保存在本机浏览器）', '');
-  const apiKey = apiKeyInput?.trim() || existingApiKey;
-  if (apiKeyInput === null) return false;
-  if (!apiKey) {
-    alert('API Key 不能为空');
-    return false;
-  }
-
-  const baseUrl = prompt('API 地址', window.__apiConfig?.provider === normalizedProvider ? window.__apiConfig.baseUrl : defaults.baseUrl);
-  if (baseUrl === null) return false;
   let validatedUrl;
   try {
-    validatedUrl = globalThis.XHS_API_CONFIG_CORE.validateProviderUrl(normalizedProvider, baseUrl.trim());
+    validatedUrl = globalThis.XHS_API_CONFIG_CORE.validateProviderUrl(provider, apiBaseUrl.value.trim());
   } catch (error) {
-    alert(error.message);
-    return false;
-  }
-
-  const model = prompt('模型名称', window.__apiConfig?.provider === normalizedProvider ? window.__apiConfig.model : defaults.model);
-  if (model === null) return false;
-  if (!model.trim()) {
-    alert('模型名称不能为空');
-    return false;
+    showApiConfigError(error.message);
+    apiBaseUrl.focus();
+    return;
   }
 
   const value = {
-    activeProvider: normalizedProvider,
+    activeProvider: provider,
     providers: {
-      [normalizedProvider]: {
-        apiKey,
+      [provider]: {
+        apiKey: nextApiKey,
         baseUrl: validatedUrl,
-        model: model.trim()
+        model: apiModel.value.trim()
       }
     }
   };
-  await chrome.storage.local.set({ [globalThis.XHS_API_CONFIG_STORE.STORAGE_KEY]: value });
-  applyApiConfig(value);
-  showToast('AI 配置已保存在本机');
-  return true;
+  try {
+    await chrome.storage.local.set({ [globalThis.XHS_API_CONFIG_STORE.STORAGE_KEY]: value });
+    applyApiConfig(value);
+    closeApiConfig(true);
+    showToast('AI 配置已保存在本机');
+  } catch (error) {
+    console.warn('AI 配置保存失败: ' + error.message);
+    showApiConfigError('保存失败，请稍后重试');
+  }
 }
 
 /** 从本机扩展存储加载配置，首次升级时兼容迁移旧配置。 */
@@ -3442,6 +3488,12 @@ searchInput.addEventListener('input', () => {
 // 导出按钮
 btnExport.addEventListener('click', exportData);
 btnApiConfig.addEventListener('click', configureApi);
+apiProvider.addEventListener('change', fillApiProviderDefaults);
+apiConfigForm.addEventListener('submit', saveApiConfig);
+apiConfigCancel.addEventListener('click', () => closeApiConfig(false));
+apiConfigModal.addEventListener('click', (event) => {
+  if (event.target === apiConfigModal) closeApiConfig(false);
+});
 
 // 排序下拉框 → 展开/收起
 sortTrigger.addEventListener('click', (e) => {
@@ -3488,6 +3540,10 @@ document.addEventListener('keydown', (e) => {
     }
     if (!resultModal.classList.contains('hidden')) {
       closeResultModal();
+      return;
+    }
+    if (!apiConfigModal.classList.contains('hidden')) {
+      closeApiConfig(false);
       return;
     }
     if (editingCategory) {

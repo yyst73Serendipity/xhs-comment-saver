@@ -132,6 +132,43 @@
         </div>
       </div>
 
+      <!-- AI 服务配置弹窗（配置仅保存在当前浏览器） -->
+      <div class="modal-overlay hidden" id="api-config-modal" role="dialog" aria-modal="true" aria-labelledby="api-config-title">
+        <form class="modal-dialog api-config-dialog" id="api-config-form">
+          <div class="modal-title" id="api-config-title">AI 配置</div>
+          <p class="api-config-intro">用于生成分类总结。API Key 只保存在当前浏览器，不会同步到云端。</p>
+          <div class="api-config-fields">
+            <label class="api-config-field" for="api-provider">
+              <span>AI 服务商</span>
+              <select id="api-provider">
+                <option value="deepseek">DeepSeek</option>
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="minimax">MiniMax</option>
+              </select>
+            </label>
+            <label class="api-config-field" for="api-key">
+              <span>API Key</span>
+              <input id="api-key" type="password" autocomplete="new-password" placeholder="请输入 API Key">
+              <small id="api-key-hint">密钥仅保存在本机</small>
+            </label>
+            <label class="api-config-field" for="api-base-url">
+              <span>API 地址</span>
+              <input id="api-base-url" type="url" autocomplete="off" spellcheck="false">
+            </label>
+            <label class="api-config-field" for="api-model">
+              <span>模型名称</span>
+              <input id="api-model" type="text" autocomplete="off" spellcheck="false">
+            </label>
+          </div>
+          <p class="api-config-error hidden" id="api-config-error" role="alert"></p>
+          <div class="modal-actions api-config-actions">
+            <button class="btn-modal-cancel" id="api-config-cancel" type="button">取消</button>
+            <button class="btn-modal-confirm" id="api-config-save" type="submit">保存配置</button>
+          </div>
+        </form>
+      </div>
+
       <!-- 本机访客数据迁移确认 -->
       <div class="modal-overlay hidden" id="cloud-migration-modal">
         <div class="modal-dialog cloud-dialog">

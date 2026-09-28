@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises';
 
 const html = await readFile('manager/manager.html', 'utf8');
 const theme = await readFile('manager/inspiration-theme.css', 'utf8');
+const managerScript = await readFile('manager/manager.js', 'utf8');
 
 function occurrences(id) {
   return html.match(new RegExp(`id="${id}"`, 'g'))?.length || 0;
@@ -73,4 +74,25 @@ test('右栏明确分为 AI 总结和数据分析', () => {
 test('配置帮助不在管理页保留重复弹窗样式', () => {
   assert.doesNotMatch(html, /cloud-help-dialog|cloud-help-steps|cloud-help-note/);
   assert.doesNotMatch(theme, /\.cloud-help-dialog|\.cloud-help-step-number|\.cloud-help-note/);
+});
+
+test('AI 配置使用页面中央卡片并提供完整表单', () => {
+  for (const id of [
+    'api-config-modal', 'api-config-form', 'api-provider', 'api-key',
+    'api-base-url', 'api-model', 'api-config-error',
+    'api-config-cancel', 'api-config-save'
+  ]) assert.equal(occurrences(id), 1, `${id} 应且只应出现一次`);
+
+  assert.match(html, /id="api-config-modal"[^>]*role="dialog"[^>]*aria-modal="true"/);
+  assert.match(html, /id="api-key"[^>]*type="password"/);
+  assert.match(theme, /\.api-config-dialog\s*\{[\s\S]*max-width:\s*560px/);
+});
+
+test('AI 配置通过页面表单保存且不再调用浏览器原生弹窗', () => {
+  const configureSection = managerScript.match(/function configureApi\(\)[\s\S]*?\/\*\* 从本机扩展存储加载配置/)?.[0] || '';
+  assert.notEqual(configureSection, '');
+  assert.doesNotMatch(configureSection, /\bprompt\s*\(/);
+  assert.doesNotMatch(configureSection, /\balert\s*\(/);
+  assert.match(managerScript, /apiConfigForm\.addEventListener\('submit'/);
+  assert.match(managerScript, /validateProviderUrl\(provider, apiBaseUrl\.value\.trim\(\)\)/);
 });

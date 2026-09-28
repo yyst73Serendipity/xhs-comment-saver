@@ -784,6 +784,85 @@ body.app-body {
   color: var(--inspiration-white);
 }
 
+/* AI 配置使用管理页内居中的表单卡片。 */
+.api-config-dialog {
+  box-sizing: border-box;
+  width: calc(100vw - 32px);
+  max-width: 560px;
+  padding: 30px;
+}
+
+.api-config-intro {
+  margin: -2px 0 22px;
+  color: var(--inspiration-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.api-config-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 16px;
+}
+
+.api-config-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  color: var(--inspiration-ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.api-config-field input,
+.api-config-field select {
+  box-sizing: border-box;
+  width: 100%;
+  height: 42px;
+  border: 1px solid var(--inspiration-line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--inspiration-ink);
+  padding: 0 12px;
+  font: inherit;
+  font-weight: 500;
+}
+
+.api-config-field input:focus,
+.api-config-field select:focus {
+  border-color: var(--inspiration-accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--inspiration-accent-soft);
+}
+
+.api-config-field small {
+  min-height: 16px;
+  color: var(--inspiration-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.api-config-error {
+  margin: 16px 0 0;
+  border-radius: 9px;
+  background: var(--inspiration-accent-soft);
+  color: var(--inspiration-danger);
+  padding: 9px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.api-config-actions {
+  margin-top: 24px;
+}
+
+@media (max-width: 620px) {
+  .api-config-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
 .storage-quota-bar {
   border-top-color: var(--inspiration-line);
   background: var(--inspiration-header-deep);
