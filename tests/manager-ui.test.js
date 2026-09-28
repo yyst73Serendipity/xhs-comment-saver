@@ -22,6 +22,15 @@ test('顶部完整展示账号、同步与全部全局操作', () => {
   ]) assert.equal(occurrences(id), 1, `${id} 应且只应出现一次`);
 });
 
+test('顶部按钮按账号行和工具行分组排序', () => {
+  const primary = html.match(/<div class="header-primary">([\s\S]*?)<\/div>\s*<div class="header-utility"/)?.[1] || '';
+  const utility = html.match(/<div class="header-utility"[^>]*>([\s\S]*?)<input type="file"/)?.[1] || '';
+  assert.match(primary, /cloud-account[\s\S]*cloud-sync[\s\S]*cloud-logout/);
+  assert.doesNotMatch(primary, /btn-api-config/);
+  assert.match(utility, /btn-import[\s\S]*btn-export[\s\S]*btn-clear[\s\S]*cloud-migrate[\s\S]*cloud-cache[\s\S]*btn-api-config[\s\S]*cloud-help/);
+  assert.match(theme, /\.header-utility\s*\{[\s\S]*justify-content:\s*flex-end/);
+});
+
 test('三栏区域和分类管理入口保持完整', () => {
   assert.match(html, /data-ui-region="categories"/);
   assert.match(html, /data-ui-region="comments"/);
