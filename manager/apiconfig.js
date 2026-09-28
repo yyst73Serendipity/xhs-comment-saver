@@ -50,12 +50,4 @@ function getApiAdapter(protocol) {
   return adapter;
 }
 
-// 管理页切换到协议字段前继续保持当前页面可运行。
-const API_PROVIDERS = Object.freeze({
-  anthropic: API_PROTOCOL_ADAPTERS.anthropic,
-  openai: API_PROTOCOL_ADAPTERS['openai-compatible'],
-  minimax: API_PROTOCOL_ADAPTERS['openai-compatible'],
-  deepseek: API_PROTOCOL_ADAPTERS['openai-compatible']
-});
-
 globalThis.XHS_API_ADAPTERS = Object.freeze({ getAdapter: getApiAdapter });

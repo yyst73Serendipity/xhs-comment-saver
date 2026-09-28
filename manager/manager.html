@@ -136,12 +136,19 @@
       <div class="modal-overlay hidden" id="api-config-modal" role="dialog" aria-modal="true" aria-labelledby="api-config-title">
         <form class="modal-dialog api-config-dialog" id="api-config-form">
           <div class="modal-title" id="api-config-title">AI 配置</div>
-          <p class="api-config-intro">用于生成分类总结。出于密钥安全，API Key 不随评论数据同步；换电脑、浏览器或重新安装扩展后需要重新配置。</p>
+          <p class="api-config-intro">用于生成分类总结。保存时 Chrome 会申请访问该 API 域名。API Key 只保存在本机，换电脑、浏览器或重新安装后需要重新配置。</p>
           <div class="api-config-fields">
             <label class="api-config-field" for="api-provider">
               <span>AI 服务商</span>
               <input id="api-provider" type="text" autocomplete="off" spellcheck="false" placeholder="例如：deepseek">
-              <small>支持 deepseek、openai、anthropic、minimax</small>
+              <small>可填写 qwen、kimi、zhipu 或其他名称</small>
+            </label>
+            <label class="api-config-field" for="api-protocol">
+              <span>接口类型</span>
+              <select id="api-protocol">
+                <option value="openai-compatible">OpenAI 兼容接口</option>
+                <option value="anthropic">Anthropic 原生接口</option>
+              </select>
             </label>
             <label class="api-config-field" for="api-key">
               <span>API Key</span>
@@ -338,6 +345,7 @@
   <div class="toast hidden" id="toast"></div>
 
   <script src="api-config-core.js"></script>
+  <script src="api-permission.js"></script>
   <script src="api-config-store.js"></script>
   <script src="apiconfig.js"></script>
   <script src="cloud-panel.js"></script>

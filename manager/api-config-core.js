@@ -82,6 +82,7 @@
 
   /** 把本机存储值转换为可供请求使用的受限配置。 */
   function normalizeApiConfig(value) {
+    if (!value?.activeProvider) return null;
     const provider = normalizeProviderName(value?.activeProvider);
     const defaults = PROVIDER_DEFAULTS[provider];
     if (!value?.providers || !Object.prototype.hasOwnProperty.call(value.providers, provider)) return null;

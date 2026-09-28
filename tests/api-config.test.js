@@ -62,6 +62,18 @@ test('任意服务商名称按 OpenAI 兼容协议标准化', async () => {
   assert.equal(result.provider, 'qwen');
   assert.equal(result.protocol, 'openai-compatible');
   assert.equal(result.model, 'qwen-plus');
+  assert.equal(normalizeApiConfig(null), null);
+  assert.throws(() => normalizeApiConfig({
+    activeProvider: 'qwen',
+    providers: {
+      qwen: {
+        protocol: 'unknown',
+        apiKey: 'secret',
+        baseUrl: 'https://api.example.com/v1/chat/completions',
+        model: 'model'
+      }
+    }
+  }), /不支持该接口类型/);
 });
 
 test('同一源码加载路径可把旧配置迁移到当前安装实例', async () => {

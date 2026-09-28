@@ -86,6 +86,10 @@ test('AI 配置使用页面中央卡片并提供完整表单', () => {
   assert.match(html, /id="api-config-modal"[^>]*role="dialog"[^>]*aria-modal="true"/);
   assert.match(html, /<input id="api-provider"[^>]*type="text"/);
   assert.doesNotMatch(html, /<select id="api-provider"/);
+  assert.match(html, /<select id="api-protocol"/);
+  assert.match(html, /value="openai-compatible"/);
+  assert.match(html, /value="anthropic"/);
+  assert.match(html, /保存时[^<]*申请访问该 API 域名/);
   assert.match(html, /id="api-key"[^>]*type="password"/);
   assert.match(theme, /\.api-config-dialog\s*\{[\s\S]*max-width:\s*560px/);
 });
@@ -96,6 +100,8 @@ test('AI 配置通过页面表单保存且不再调用浏览器原生弹窗', ()
   assert.doesNotMatch(configureSection, /\bprompt\s*\(/);
   assert.doesNotMatch(configureSection, /\balert\s*\(/);
   assert.match(managerScript, /apiConfigForm\.addEventListener\('submit'/);
-  assert.match(managerScript, /apiProvider\.value\.trim\(\)\.toLowerCase\(\)/);
-  assert.match(managerScript, /validateProviderUrl\(provider, apiBaseUrl\.value\.trim\(\)\)/);
+  assert.match(managerScript, /normalizeProviderName\(apiProvider\.value\)/);
+  assert.match(managerScript, /apiPermission\.request\(validatedUrl\)/);
+  assert.match(managerScript, /apiPermission\.has\(baseUrl\)/);
+  assert.match(managerScript, /getAdapter\(cfg\.protocol\)/);
 });

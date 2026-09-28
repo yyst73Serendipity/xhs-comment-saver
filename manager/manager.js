@@ -84,6 +84,7 @@ const btnApiConfig = document.getElementById('btn-api-config');
 const apiConfigModal = document.getElementById('api-config-modal');
 const apiConfigForm = document.getElementById('api-config-form');
 const apiProvider = document.getElementById('api-provider');
+const apiProtocol = document.getElementById('api-protocol');
 const apiKey = document.getElementById('api-key');
 const apiKeyHint = document.getElementById('api-key-hint');
 const apiBaseUrl = document.getElementById('api-base-url');
@@ -110,6 +111,10 @@ const importPreviewBody = document.getElementById('import-preview-body');
 const btnPreviewCancel = document.getElementById('btn-preview-cancel');
 const btnPreviewConfirm = document.getElementById('btn-preview-confirm');
 const toast = document.getElementById('toast');
+const apiPermission = globalThis.XHS_API_PERMISSION.createPermissionController({
+  permissions: chrome.permissions,
+  core: globalThis.XHS_API_CONFIG_CORE
+});
 
 /* ========== 右侧面板 DOM 引用 ========== */
 const rightPanel = document.getElementById('right-panel');
@@ -1850,17 +1855,20 @@ async function callLLMApi(prompt) {
   const cfg = window.__apiConfig;
   if (!cfg) throw new Error('API 配置未加载，请点击页面顶部的“AI 配置”');
 
-  const provider = API_PROVIDERS[cfg.provider];
-  if (!provider) throw new Error('未知的 provider: ' + cfg.provider);
-
-  // 即使本机存储被手工篡改，请求前仍再次限制为 Manifest 已授权来源。
-  const baseUrl = globalThis.XHS_API_CONFIG_CORE.validateProviderUrl(cfg.provider, cfg.baseUrl);
+  const adapter = globalThis.XHS_API_ADAPTERS.getAdapter(cfg.protocol);
+  const baseUrl = globalThis.XHS_API_CONFIG_CORE.validateApiUrl(cfg.baseUrl);
+  if (!await apiPermission.has(baseUrl)) {
+    throw {
+      code: '需要 API 权限',
+      message: '该 API 域名的访问权限已被撤销，请重新打开“AI 配置”并保存授权'
+    };
+  }
   const model = cfg.model;
 
   const resp = await fetch(baseUrl, {
     method: 'POST',
-    headers: provider.headers(cfg.apiKey),
-    body: JSON.stringify(provider.buildBody(model, prompt))
+    headers: adapter.headers(cfg.apiKey),
+    body: JSON.stringify(adapter.buildBody(model, prompt))
   });
   if (!resp.ok) {
     let errBody;
@@ -1893,7 +1901,7 @@ async function callLLMApi(prompt) {
     throw { code: errCode, message: errMsg, status: resp.status };
   }
   const data = await resp.json();
-  return provider.parseResponse(data);
+  return adapter.parseResponse(data);
 }
 
 /** 简易 Markdown 渲染 → HTML */
@@ -3096,13 +3104,12 @@ function showApiConfigError(message) {
 function fillApiProviderDefaults() {
   const provider = apiProvider.value.trim().toLowerCase();
   const defaults = API_PROVIDER_DEFAULTS[provider];
-  if (!defaults) return;
   const isCurrentProvider = window.__apiConfig?.provider === provider;
   apiKey.value = '';
   apiKey.placeholder = isCurrentProvider ? '留空则保留当前 API Key' : '请输入 API Key';
   apiKeyHint.textContent = isCurrentProvider ? '已保存密钥；留空即可保留' : '密钥仅保存在本机';
-  apiBaseUrl.value = isCurrentProvider ? window.__apiConfig.baseUrl : defaults.baseUrl;
-  apiModel.value = isCurrentProvider ? window.__apiConfig.model : defaults.model;
+  apiBaseUrl.value = isCurrentProvider ? window.__apiConfig.baseUrl : (defaults?.baseUrl || '');
+  apiModel.value = isCurrentProvider ? window.__apiConfig.model : (defaults?.model || '');
 }
 
 /** 关闭 AI 配置弹窗，并把结果返回给等待生成总结的调用方。 */
@@ -3120,6 +3127,7 @@ function closeApiConfig(result = false) {
 function configureApi() {
   if (apiConfigResolver) apiConfigResolver(false);
   apiProvider.value = window.__apiConfig?.provider || 'deepseek';
+  apiProtocol.value = window.__apiConfig?.protocol || 'openai-compatible';
   fillApiProviderDefaults();
   apiConfigError.classList.add('hidden');
   apiConfigError.textContent = '';
@@ -3131,10 +3139,18 @@ function configureApi() {
 /** 校验并保存 AI 配置表单。 */
 async function saveApiConfig(event) {
   event.preventDefault();
-  const provider = apiProvider.value.trim().toLowerCase();
-  if (!API_PROVIDER_DEFAULTS[provider] || !API_PROVIDERS[provider]) {
-    showApiConfigError('当前支持 deepseek、openai、anthropic、minimax');
+  let provider;
+  try {
+    provider = globalThis.XHS_API_CONFIG_CORE.normalizeProviderName(apiProvider.value);
+  } catch (error) {
+    showApiConfigError(error.message);
     apiProvider.focus();
+    return;
+  }
+  const protocol = apiProtocol.value;
+  if (!Object.values(globalThis.XHS_API_CONFIG_CORE.PROTOCOLS).includes(protocol)) {
+    showApiConfigError('不支持该接口类型');
+    apiProtocol.focus();
     return;
   }
   const existingApiKey = window.__apiConfig?.provider === provider ? window.__apiConfig.apiKey : '';
@@ -3152,10 +3168,23 @@ async function saveApiConfig(event) {
 
   let validatedUrl;
   try {
-    validatedUrl = globalThis.XHS_API_CONFIG_CORE.validateProviderUrl(provider, apiBaseUrl.value.trim());
+    validatedUrl = globalThis.XHS_API_CONFIG_CORE.validateApiUrl(apiBaseUrl.value.trim());
   } catch (error) {
     showApiConfigError(error.message);
     apiBaseUrl.focus();
+    return;
+  }
+
+  let granted;
+  try {
+    granted = await apiPermission.request(validatedUrl);
+  } catch (error) {
+    console.warn('AI API 域名授权失败: ' + error.message);
+    showApiConfigError('无法申请该 API 域名的访问权限，请检查地址后重试');
+    return;
+  }
+  if (!granted) {
+    showApiConfigError('需要允许扩展访问该 API 域名，才能保存并调用模型');
     return;
   }
 
@@ -3163,6 +3192,7 @@ async function saveApiConfig(event) {
     activeProvider: provider,
     providers: {
       [provider]: {
+        protocol,
         apiKey: nextApiKey,
         baseUrl: validatedUrl,
         model: apiModel.value.trim()

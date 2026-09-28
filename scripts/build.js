@@ -90,6 +90,7 @@ const publicFiles = [
   'content/content.css',
   'content/content.js',
   'manager/api-config-core.js',
+  'manager/api-permission.js',
   'manager/api-config-store.js',
   'manager/apiconfig.js',
   'manager/cloud-panel.css',
