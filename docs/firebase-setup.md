@@ -89,13 +89,13 @@ npm run deploy:hosting
 3. 点击扩展图标打开管理页。
 4. 顶部会显示“云服务待绑定所有者”，点击“使用 Google 登录”。
 5. 使用以后需要跨设备同步的 Google 账号登录。
-6. 登录成功后，账号栏会显示邮箱和 Firebase UID。点击“复制 UID”。
+6. 登录成功后，打开 Firebase 控制台的“Authentication → 用户”，复制该 Google 账号对应的“用户 UID”。
 
 在未填写 `ownerUid` 的这一阶段，登录和退出可用，评论云数据的同步、迁移和缓存清理按钮保持关闭。
 
 ## 8. 绑定所有者并部署规则
 
-把复制的 UID 原样写入 `config/firebase.local.json` 的 `ownerUid`，然后运行：
+把 Firebase 控制台中复制的 UID 原样写入 `config/firebase.local.json` 的 `ownerUid`，然后运行：
 
 ```bash
 npm run deploy

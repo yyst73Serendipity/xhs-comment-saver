@@ -17,7 +17,7 @@ const summaryStore = globalThis.XHS_SUMMARY_STORE;
 
 test('管理页提供全部云同步控件且保留三栏主体', () => {
   for (const id of [
-    'cloud-account', 'cloud-status', 'cloud-login', 'cloud-copy-uid', 'cloud-sync', 'cloud-cache',
+    'cloud-account', 'cloud-status', 'cloud-login', 'cloud-sync', 'cloud-cache',
     'cloud-logout', 'cloud-migrate', 'cloud-conflicts'
   ]) {
     assert.match(html, new RegExp(`id="${id}"`));
@@ -31,6 +31,8 @@ test('管理页提供全部云同步控件且保留三栏主体', () => {
   assert.match(build, /manager\/cloud-panel\.css/);
   assert.match(build, /manager\/cloud-panel\.js/);
   assert.match(build, /manager\/summary-store\.js/);
+  assert.doesNotMatch(html, /cloud-copy-uid|复制 UID/);
+  assert.doesNotMatch(cloudPanel, /UID:\s*\$\{/);
 });
 
 test('配置帮助使用内置弹窗打开和关闭', () => {
@@ -63,14 +65,14 @@ test('刷新状态会设置面板状态和同步按钮忙碌属性', () => {
   assert.match(cloudPanel, /sync\.disabled\s*=\s*syncing/);
 });
 
-test('未填写 ownerUid 时仍可登录获取 UID但不能访问云数据', () => {
+test('未填写 ownerUid 时仍可登录但不能访问云数据', () => {
   assert.deepEqual(cloudApi.controlsFor({ configured: true, ownerConfigured: false, signedIn: false }), {
-    login: true, copyUid: false, sync: false, migrate: false, conflicts: false, cache: false, logout: false
+    login: true, sync: false, migrate: false, conflicts: false, cache: false, logout: false
   });
   assert.deepEqual(cloudApi.controlsFor({
     configured: true, ownerConfigured: false, signedIn: true, user: { uid: 'owner' }
   }), {
-    login: false, copyUid: true, sync: false, migrate: false, conflicts: false, cache: false, logout: true
+    login: false, sync: false, migrate: false, conflicts: false, cache: false, logout: true
   });
   assert.match(cloudApi.statusText({ configured: true, ownerConfigured: false, signedIn: true }), /ownerUid/);
 });

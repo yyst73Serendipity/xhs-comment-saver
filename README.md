@@ -218,9 +218,9 @@ xhs-comment-saver/
 
 复制 `config/firebase.example.json` 为 `config/firebase.local.json` 并填写独立 Firebase 项目的公开客户端配置、HTTPS `authPageUrl` 和可选 `ownerUid`。此本机文件已被 Git 忽略；未创建时仍可运行 `npm run build`，扩展会以本地模式构建，并且不会初始化 Firebase 或创建登录文档。
 
-构建会同时生成 `dist/extension` 和 `dist/hosting`。管理页已接入 `cloudLogin`、`cloudLogout`、`cloudStatus`、手动同步、迁移和缓存重拉入口；在部署 Hosting、启用 Google 登录并填写 `ownerUid` 前，扩展仍以本地模式运行。基础 Firebase 配置完成但尚未填写 `ownerUid` 时，管理页只开放登录、复制 UID 和退出登录；把复制的 UID 填入配置并重新构建后，才开放云数据按钮，其他 Google 账号随后会被扩展拒绝。
+构建会同时生成 `dist/extension` 和 `dist/hosting`。管理页已接入 `cloudLogin`、`cloudLogout`、`cloudStatus`、手动同步、迁移和缓存重拉入口；在部署 Hosting、启用 Google 登录并填写 `ownerUid` 前，扩展仍以本地模式运行。基础 Firebase 配置完成但尚未填写 `ownerUid` 时，管理页只开放登录和退出登录；从 Firebase Authentication 用户列表取得 UID 并填入配置、重新构建后，才开放云数据按钮，其他 Google 账号随后会被扩展拒绝。
 
-首次配置时保持 `ownerUid` 为空，运行 `npm run deploy:hosting` 只部署登录桥，加载 `dist/extension` 并登录后从管理页复制真实 UID。把 UID 写回配置后运行 `npm run deploy`；部署脚本会重新构建并确认 `dist/firestore.rules` 不含所有者占位符，再通过项目内 Firebase CLI 参数数组部署 Firestore Rules 与 Hosting。不要把本机配置加入 Git，详细顺序见 [Firebase 配置指南](docs/firebase-setup.md)。
+首次配置时保持 `ownerUid` 为空，运行 `npm run deploy:hosting` 只部署登录桥，加载 `dist/extension` 并完成登录，再从 Firebase 控制台的 Authentication 用户列表复制真实 UID。把 UID 写回配置后运行 `npm run deploy`；部署脚本会重新构建并确认 `dist/firestore.rules` 不含所有者占位符，再通过项目内 Firebase CLI 参数数组部署 Firestore Rules 与 Hosting。不要把本机配置加入 Git，详细顺序见 [Firebase 配置指南](docs/firebase-setup.md)。
 
 ## 技术栈
 

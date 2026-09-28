@@ -44,13 +44,12 @@
     return `已同步 · ${timeText(status.lastSync) || '等待首次同步'}`;
   }
 
-  /** 按 Firebase 配置阶段限制数据按钮，同时保留首次获取 UID 的登录路径。 */
+  /** 按 Firebase 配置阶段限制数据按钮。 */
   function controlsFor(status, conflictCount = 0) {
     const signedIn = Boolean(status.signedIn);
     const dataReady = Boolean(status.configured && status.ownerConfigured && signedIn);
     return {
       login: Boolean(status.configured && !signedIn),
-      copyUid: Boolean(status.configured && signedIn && status.user?.uid),
       sync: dataReady,
       migrate: dataReady,
       conflicts: Boolean(dataReady && conflictCount),
@@ -65,7 +64,6 @@
     const statusLabel = byId('cloud-status');
     const panel = byId('cloud-panel');
     const login = byId('cloud-login');
-    const copyUid = byId('cloud-copy-uid');
     const sync = byId('cloud-sync');
     const migrate = byId('cloud-migrate');
     const conflictsButton = byId('cloud-conflicts');
@@ -106,7 +104,7 @@
       try {
         currentStatus = await sendAction('cloudStatus');
         account.textContent = currentStatus.signedIn
-          ? `${currentStatus.user?.email || 'Google 账号'} · UID: ${currentStatus.user?.uid || '未知'}`
+          ? (currentStatus.user?.email || 'Google 账号')
           : '本地模式';
         statusLabel.textContent = statusText(currentStatus);
         panel.dataset.state = stateFor(currentStatus);
@@ -115,7 +113,6 @@
         sync.disabled = syncing;
         const controls = controlsFor(currentStatus, conflicts.length);
         toggle(login, controls.login);
-        toggle(copyUid, controls.copyUid);
         toggle(sync, controls.sync);
         toggle(migrate, controls.migrate);
         toggle(conflictsButton, controls.conflicts);
@@ -187,14 +184,6 @@
     login.addEventListener('click', async () => {
       const user = await run('cloudLogin', {}, 'Google 账号登录成功');
       if (user) await reloadData();
-    });
-    copyUid.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(currentStatus?.user?.uid || '');
-        showToast('UID 已复制', 'success');
-      } catch {
-        showToast('UID 复制失败，请手动选择账号栏中的 UID', 'error');
-      }
     });
     logout.addEventListener('click', async () => {
       const result = await run('cloudLogout', {}, '已退出 Google 账号');
