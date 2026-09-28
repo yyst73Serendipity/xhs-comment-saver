@@ -14,7 +14,7 @@
 
     async function request(baseUrl) {
       const origins = [permissionFor(baseUrl)];
-      if (await permissions.contains({ origins })) return true;
+      // 直接请求以保留“保存”点击产生的用户手势；已有权限时 Chrome 会直接返回成功。
       return permissions.request({ origins });
     }
 

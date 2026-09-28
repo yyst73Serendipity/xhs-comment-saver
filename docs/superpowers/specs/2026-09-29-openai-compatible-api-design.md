@@ -67,10 +67,9 @@ AI 配置卡片包含：
 1. 修剪并校验服务商名称、API Key、API 地址和模型名称。
 2. 拒绝非 HTTPS、包含用户名或密码、缺少主机名，以及明显指向 localhost、`.local` 或私有 IP 的 URL。
 3. 由 URL 生成精确到 HTTPS 主机名的权限模式；Chrome 匹配模式不区分端口，路径不进入权限模式。
-4. 先用 `chrome.permissions.contains()` 检查已有权限。
-5. 没有权限时，在本次保存点击中调用 `chrome.permissions.request()`。
-6. 用户拒绝后保持弹窗打开并显示说明，不写入配置。
-7. 授权成功后写入 `chrome.storage.local`，更新运行时配置并关闭弹窗。
+4. 在本次保存点击中直接调用 `chrome.permissions.request()`，避免异步预检查丢失 Chrome 要求的用户手势；已有权限时 Chrome 直接返回成功。
+5. 用户拒绝后保持弹窗打开并显示说明，不写入配置。
+6. 授权成功后写入 `chrome.storage.local`，更新运行时配置并关闭弹窗。
 
 调用流程：
 
@@ -105,7 +104,7 @@ AI 配置卡片包含：
 - HTTP、localhost、带凭证 URL 和无效 URL 被拒绝。
 - 主机权限由 URL 精确生成，路径不进入权限模式。
 - 用户拒绝域名授权时不保存配置。
-- 已授权域名不会重复请求权限。
+- 保存配置时只向 Chrome 请求当前 API 主机；已有权限时直接成功，不出现新增授权提示。
 - OpenAI 兼容请求头、请求体和响应解析正确。
 - Anthropic 旧配置和原生请求继续工作。
 - API Key 不出现在构建产物的默认配置、错误文案或日志中。

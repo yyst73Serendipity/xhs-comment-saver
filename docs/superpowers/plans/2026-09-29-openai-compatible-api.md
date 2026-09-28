@@ -331,14 +331,18 @@ async function createController(permissions) {
   });
 }
 
-test('已有主机权限时不会重复申请', async () => {
+test('保存动作直接申请精确主机权限', async () => {
   let requestCount = 0;
   const controller = await createController({
-    contains: async () => true,
-    request: async () => { requestCount += 1; return true; }
+    contains: async () => false,
+    request: async request => {
+      requestCount += 1;
+      assert.equal(request.origins[0], 'https://api.example.com/*');
+      return true;
+    }
   });
   assert.equal(await controller.request('https://api.example.com/v1/chat/completions'), true);
-  assert.equal(requestCount, 0);
+  assert.equal(requestCount, 1);
 });
 
 test('用户拒绝主机权限时返回 false', async () => {
@@ -392,7 +396,6 @@ Create `manager/api-permission.js`:
     }
     async function request(baseUrl) {
       const origins = [permissionFor(baseUrl)];
-      if (await permissions.contains({ origins })) return true;
       return permissions.request({ origins });
     }
     return Object.freeze({ has, request });
