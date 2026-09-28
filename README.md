@@ -65,7 +65,8 @@
 - 右侧面板上半部分，按分类存储 Markdown 总结笔记
 - 支持手动编写（实时自动保存）和 AI 自动生成（调用大模型 API）
 - 一键导出为 `.md` 文件
-- 管理页提供居中的「AI 配置」卡片，可输入服务商并设置 API Key、API 地址和模型；配置仅保存在本机 `chrome.storage.local`，换电脑、浏览器或重新安装后需要重新配置
+- 管理页提供居中的「AI 配置」卡片，支持任意公网 HTTPS 的 OpenAI 兼容接口，并保留 Anthropic 原生接口
+- 保存配置时只申请当前 API 主机的 Chrome 权限；API Key 和 AI 配置仅保存在本机 `chrome.storage.local`，换电脑、浏览器或重新安装后需要重新配置
 
 **成长视图（多维度数据分析）**
 - 右侧面板下半部分，四种可视化视图一键切换：
@@ -136,13 +137,16 @@ xhs-comment-saver/
 │   ├── cloud-panel.css           # Google 账号、同步状态与冲突弹窗样式
 │   ├── cloud-panel.js            # 登录、同步、迁移备份与冲突处理交互
 │   ├── summary-store.js          # 分类总结的统一后台保存和删除适配
-│   ├── api-config-core.js        # AI 服务商默认值与官方来源校验
+│   ├── api-config-core.js        # AI 配置、HTTPS 端点与主机权限模式校验
+│   ├── api-permission.js         # AI API 主机权限检查和按需申请
 │   ├── api-config-store.js       # AI 本机配置读取和旧版配置迁移
-│   ├── apiconfig.js              # LLM API 提供商预设（Anthropic / OpenAI / MiniMax / DeepSeek）
+│   ├── apiconfig.js              # OpenAI 兼容与 Anthropic 原生请求适配器
 │   └── apiconfig.example.json    # 旧版本机配置迁移示例（不含密钥）
 ├── tests/                        # 测试文件
 │   ├── auth-config.test.js       # Firebase 配置和 Manifest 权限测试
-│   ├── api-config.test.js        # AI 配置迁移和 API 来源边界测试
+│   ├── api-adapters.test.js      # OpenAI 兼容与 Anthropic 请求响应格式测试
+│   ├── api-config.test.js        # AI 配置迁移、HTTPS 端点和权限模式测试
+│   ├── api-permission.test.js    # AI API 主机动态授权测试
 │   ├── build-output.test.js      # 构建产物、固定 ID 与敏感文件边界测试
 │   ├── readme-upgrade.test.js    # 升级前导出与恢复顺序契约测试
 │   ├── sync-model.test.js        # 稳定标识、迁移、合并、冲突与墓碑测试
@@ -203,9 +207,12 @@ xhs-comment-saver/
 ### 配置 AI 总结
 
 1. 打开管理页，点击顶部「AI 配置」
-2. 依次填写服务商、API Key、该服务商官方 API 地址和模型名称；扩展会拒绝 Manifest 未授权的自建域名
-3. 配置仅写入当前浏览器的 `chrome.storage.local`，不会进入 Git、构建产物或 Firebase
-4. 选择具体分类后点击 🤖 即可生成 AI 总结
+2. 输入服务商名称，例如 `qwen`、`kimi`、`zhipu` 或其他自定义名称
+3. 选择「OpenAI 兼容接口」，填写完整的公网 HTTPS API 地址、模型名称和 API Key；Anthropic 用户可选择原生接口
+4. 点击「保存配置」，在 Chrome 提示中允许扩展访问当前 API 主机
+5. 选择具体分类后点击 🤖 即可生成 AI 总结
+
+扩展只申请当前填写的 API 主机权限，不会获得所有网站的永久访问权限。API Key 和 AI 配置仅写入当前浏览器的 `chrome.storage.local`，不会进入 Git、构建产物或 Firebase；更换电脑、浏览器、Chrome 用户资料或重新安装扩展后需要重新配置。
 
 如果是从源码目录升级到 `dist/extension`，必须先完成上面的“导出备份 → 确认落盘 → 卸载并加载构建版 → 导入恢复”流程，再在构建版顶部「AI 配置」重新输入一次 API Key 和服务商；之后配置只保存在当前安装实例中。
 
