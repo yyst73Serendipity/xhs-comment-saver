@@ -315,6 +315,19 @@ body.app-body {
   color: var(--inspiration-white);
 }
 
+.cat-drag-handle {
+  color: var(--inspiration-muted);
+}
+
+.category-item.active .cat-drag-handle {
+  color: var(--inspiration-white);
+}
+
+.category-item.drag-over-top::before,
+.category-item.drag-over-bottom::after {
+  background: var(--inspiration-accent);
+}
+
 .category-item-count,
 .category-item.active .category-item-count {
   background: var(--inspiration-ink-soft);

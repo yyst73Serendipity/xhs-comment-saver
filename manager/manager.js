@@ -10,6 +10,7 @@ let currentCategory = '全部';  // 当前选中的分类，「全部」表示�
 let searchKeyword = '';        // 当前搜索关键词
 let currentSort = 'newest';    // 当前排序：'newest' 最新收藏 / 'oldest' 最早收藏
 let editingCategory = null;   // 当前正在内联编辑的分类名
+let dragCategory = null;      // 当前被拖动的自定义分类
 let pendingDeleteCommentId = null; // 待删除的评论 ID
 
 /* ========== AI 总结相关状态 ========== */
@@ -259,11 +260,24 @@ function renderCategories() {
   allItem.addEventListener('click', () => selectCategory('全部'));
   categoryList.appendChild(allItem);
 
-  // 各分类项（「未分类」也不可操作）
-  categories.forEach(cat => {
+  // 「未分类」固定在「全部」之后，不可拖拽、不可编辑
+  const uncat = '未分类';
+  const uncatItem = createCategoryItem(
+    uncat,
+    comments.filter(comment => comment.category === uncat).length,
+    false
+  );
+  if (currentCategory === uncat) uncatItem.classList.add('active');
+  uncatItem.addEventListener('click', () => {
+    if (editingCategory) return;
+    selectCategory(uncat);
+  });
+  categoryList.appendChild(uncatItem);
+
+  // 其余分类按照持久化顺序渲染，并可通过手柄拖拽排序
+  categories.filter(cat => cat !== uncat).forEach(cat => {
     const count = comments.filter(c => c.category === cat).length;
-    const editable = cat !== '未分类';
-    const item = createCategoryItem(cat, count, editable);
+    const item = createCategoryItem(cat, count, true, true);
     if (currentCategory === cat) {
       item.classList.add('active');
     }
@@ -280,11 +294,33 @@ function renderCategories() {
  * @param {string} name - 分类名
  * @param {number} count - 该分类的评论数
  * @param {boolean} showActions - 是否显示操作按钮（「全部」不显示）
+ * @param {boolean} sortable - 是否可拖拽排序
  * @returns {HTMLElement}
  */
-function createCategoryItem(name, count, showActions) {
+function createCategoryItem(name, count, showActions, sortable = false) {
   const li = document.createElement('li');
   li.className = 'category-item';
+
+  if (sortable) {
+    const handle = document.createElement('span');
+    handle.className = 'cat-drag-handle';
+    handle.textContent = '⠿';
+    handle.title = '拖拽排序';
+    handle.setAttribute('aria-label', `拖动分类 ${name}`);
+    handle.draggable = true;
+    handle.addEventListener('dragstart', (event) => {
+      dragCategory = name;
+      li.classList.add('dragging');
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', name);
+    });
+    handle.addEventListener('dragend', () => {
+      li.classList.remove('dragging');
+      dragCategory = null;
+      clearDragIndicators();
+    });
+    li.appendChild(handle);
+  }
 
   const nameSpan = document.createElement('span');
   nameSpan.className = 'category-item-name';
@@ -324,6 +360,30 @@ function createCategoryItem(name, count, showActions) {
     actions.appendChild(renameBtn);
     actions.appendChild(deleteBtn);
     li.appendChild(actions);
+  }
+
+  // 可排序分类作为拖放目标，根据指针位于上半部或下半部显示插入位置。
+  if (sortable) {
+    li.addEventListener('dragover', (event) => {
+      if (!dragCategory || dragCategory === name) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      const rect = li.getBoundingClientRect();
+      const before = event.clientY - rect.top < rect.height / 2;
+      clearDragIndicators();
+      li.classList.add(before ? 'drag-over-top' : 'drag-over-bottom');
+    });
+    li.addEventListener('dragleave', (event) => {
+      if (!li.contains(event.relatedTarget)) {
+        li.classList.remove('drag-over-top', 'drag-over-bottom');
+      }
+    });
+    li.addEventListener('drop', (event) => {
+      if (!dragCategory || dragCategory === name) return;
+      event.preventDefault();
+      const rect = li.getBoundingClientRect();
+      reorderCategory(dragCategory, name, event.clientY - rect.top < rect.height / 2);
+    });
   }
 
   // 内联编辑区域（默认隐藏）
@@ -916,6 +976,36 @@ async function confirmDeleteComment() {
 function closeCommentDeleteModal() {
   commentDeleteModal.classList.add('hidden');
   pendingDeleteCommentId = null;
+}
+
+/** 清除分类拖放产生的插入位置指示线。 */
+function clearDragIndicators() {
+  document.querySelectorAll('.category-item.drag-over-top, .category-item.drag-over-bottom')
+    .forEach(item => item.classList.remove('drag-over-top', 'drag-over-bottom'));
+}
+
+/**
+ * 乐观更新分类顺序，并通过统一后台动作持久化。
+ * @param {string} dragged - 被拖动分类
+ * @param {string} target - 目标分类
+ * @param {boolean} before - 是否插入目标上方
+ */
+async function reorderCategory(dragged, target, before) {
+  const next = globalThis.XHS_CATEGORY_ORDER.moveCategory(categories, dragged, target, before);
+  if (next.every((name, index) => name === categories[index])) return;
+
+  dragCategory = null;
+  clearDragIndicators();
+  categories = next;
+  renderCategories();
+
+  try {
+    categories = await sendAction('reorderCategories', { categories: next });
+    renderCategories();
+  } catch (error) {
+    showToast(error.message || '分类排序失败，请重试', 'error');
+    await reloadBusinessData();
+  }
 }
 
 /**

@@ -41,6 +41,18 @@ test('三栏区域和分类管理入口保持完整', () => {
   }
 });
 
+test('自定义分类支持拖拽排序且系统分类保持固定', () => {
+  assert.match(html, /<script src="category-order\.js"><\/script>[\s\S]*<script src="manager\.js"><\/script>/);
+  assert.match(managerScript, /let dragCategory = null/);
+  assert.match(managerScript, /createCategoryItem\(cat, count, true, true\)/);
+  assert.match(managerScript, /handle\.draggable = true/);
+  assert.match(managerScript, /sendAction\('reorderCategories', \{ categories: next \}\)/);
+  assert.match(managerScript, /await reloadBusinessData\(\)/);
+  assert.match(theme, /\.cat-drag-handle/);
+  assert.match(theme, /\.category-item\.drag-over-top::before/);
+  assert.match(theme, /\.category-item\.drag-over-bottom::after/);
+});
+
 test('AI 总结和四个数据视图具有可读名称', () => {
   assert.match(html, /data-ui-region="ai-summary"/);
   assert.match(html, /data-ui-region="data-analysis"/);

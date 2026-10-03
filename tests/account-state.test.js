@@ -193,6 +193,34 @@ test('评论、分类、总结与冲突动作均映射到版本化模型', async
   assert.deepEqual(project(currentWorkspace(state)).categories, ['未分类']);
 });
 
+test('分类重排保存完整顺序并在登录态进入同步队列', async () => {
+  const state = await createState([], ['未分类'], {});
+  activateAccount(state, { uid: 'a' });
+  await mutate(state, { action: 'addCategory', name: '好物' });
+  await mutate(state, { action: 'addCategory', name: '避雷' });
+  const before = currentWorkspace(state).pending.length;
+  await mutate(state, { action: 'reorderCategories', categories: ['未分类', '避雷', '好物'] });
+  assert.deepEqual(project(currentWorkspace(state)).categories, ['未分类', '避雷', '好物']);
+  assert.equal(currentWorkspace(state).pending.length, before + 1);
+  assert.equal(currentWorkspace(state).pending.at(-1).collection, 'settings');
+});
+
+test('分类重排拒绝缺失、重复和未知分类', async () => {
+  const state = await createState([], ['未分类'], {});
+  await mutate(state, { action: 'addCategory', name: '好物' });
+  await mutate(state, { action: 'addCategory', name: '避雷' });
+  for (const categories of [
+    ['未分类', '好物'],
+    ['未分类', '好物', '好物'],
+    ['未分类', '好物', '未知']
+  ]) {
+    await assert.rejects(
+      mutate(state, { action: 'reorderCategories', categories }),
+      /分类不存在|分类顺序必须包含全部分类且不能重复/
+    );
+  }
+});
+
 test('业务动作在系统边界拒绝未知、越界和不存在的数据', async () => {
   const state = await createState([], ['未分类'], {});
   for (const [message, pattern] of [

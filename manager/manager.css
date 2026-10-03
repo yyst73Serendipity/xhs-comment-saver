@@ -202,6 +202,51 @@ body {
   white-space: nowrap;
 }
 
+/* 分类拖拽排序 */
+.cat-drag-handle {
+  flex-shrink: 0;
+  margin-right: 6px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: grab;
+  user-select: none;
+  opacity: 0.45;
+  transition: opacity 0.15s;
+}
+
+.category-item:hover .cat-drag-handle,
+.category-item:focus-within .cat-drag-handle {
+  opacity: 1;
+}
+
+.cat-drag-handle:active {
+  cursor: grabbing;
+}
+
+.category-item.dragging {
+  opacity: 0.4;
+}
+
+.category-item.drag-over-top::before,
+.category-item.drag-over-bottom::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+.category-item.drag-over-top::before {
+  top: 0;
+}
+
+.category-item.drag-over-bottom::after {
+  bottom: 0;
+}
+
 .category-item-count {
   font-size: 11px;
   color: var(--text-sidebar-count);
@@ -373,7 +418,8 @@ body {
 /* 编辑模式下隐藏名称、计数、操作按钮 */
 .category-item.editing .category-item-name,
 .category-item.editing .category-item-count,
-.category-item.editing .category-item-actions {
+.category-item.editing .category-item-actions,
+.category-item.editing .cat-drag-handle {
   display: none;
 }
 
