@@ -177,6 +177,8 @@ xhs-comment-saver/
 5. 选择 `xhs-comment-saver/dist/extension`，确认
 6. 扩展图标出现在浏览器工具栏，即安装成功
 
+更新源码后需要重新运行 `npm run build`，再到 `chrome://extensions` 点击该扩展的“重新加载”，并重新打开已存在的管理页标签，才能使用最新功能。
+
 ### 从源码目录升级到构建版
 
 更换 unpacked 加载目录可能清除 `chrome.storage.local` 中的评论、分类、AI 总结和本机设置。必须严格按以下顺序操作：

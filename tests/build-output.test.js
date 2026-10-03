@@ -66,6 +66,7 @@ test('未配置 Firebase 时构建安全且 AI 配置入口可用', async () => 
     assert.match(builtManagerHtml, /id="btn-api-config"/);
     assert.match(builtManagerHtml, /id="api-protocol"/);
     assert.match(builtManagerHtml, /data-packaged-build="true"/);
+    assert.ok(await exists(join(outputDirectory, 'extension', 'manager', 'category-order.js')));
     assert.ok(await exists(join(outputDirectory, 'extension', 'manager', 'inspiration-theme.css')));
     assert.ok(await exists(join(outputDirectory, 'extension', 'manager', 'setup.html')));
   } finally {
